@@ -75,13 +75,22 @@ struct WhoamiCommand: BuiltinCommand {
 }
 
 struct HelpCommand: BuiltinCommand {
-    struct Options: ParsableArguments {}
+    struct Options: ParsableArguments {
+        @Argument(help: "Optional command name")
+        var command: String?
+    }
 
     static let name = "help"
     static let overview = "Display information about builtin commands"
 
     static func run(context: inout CommandContext, options: Options) async -> Int32 {
-        _ = options
+        if let command = options.command {
+            let helpResult = await context.runSubcommandIsolated([command, "--help"], stdin: Data())
+            context.stdout.append(helpResult.result.stdout)
+            context.stderr.append(helpResult.result.stderr)
+            return helpResult.result.exitCode
+        }
+
         let commands = Set(context.availableCommands).sorted()
         for command in commands {
             context.writeStdout("\(command)\n")
@@ -118,6 +127,12 @@ struct HistoryCommand: BuiltinCommand {
 
 struct SeqCommand: BuiltinCommand {
     struct Options: ParsableArguments {
+        @Option(name: .short, help: "Use separator string")
+        var s: String?
+
+        @Flag(name: .short, help: "Equalize width with leading zeroes")
+        var w = false
+
         @Argument(help: "Stop or start/stop/step values")
         var values: [String] = []
     }
@@ -126,6 +141,16 @@ struct SeqCommand: BuiltinCommand {
     static let overview = "Print a sequence of numbers"
 
     static func run(context: inout CommandContext, options: Options) async -> Int32 {
+        guard !options.values.isEmpty else {
+            context.writeStderr("seq: missing operand\n")
+            return 1
+        }
+
+        if let invalid = options.values.first(where: { Double($0) == nil }) {
+            context.writeStderr("seq: invalid floating point argument: '\(invalid)'\n")
+            return 1
+        }
+
         let numbers = options.values.compactMap(Double.init)
         let start: Double
         let step: Double
@@ -154,34 +179,72 @@ struct SeqCommand: BuiltinCommand {
             return 1
         }
 
+        let precision = options.values.map(decimalPrecision).max() ?? 0
+        let separator = options.s ?? "\n"
+        var rendered: [String] = []
         var current = start
+        let epsilon = 1e-10
+        var iterations = 0
+        let maxIterations = 100_000
         if step > 0 {
-            while current <= end {
-                context.writeStdout(Self.formatNumber(current) + "\n")
+            while current <= end + epsilon {
+                guard iterations < maxIterations else { break }
+                rendered.append(Self.formatNumber(current, precision: precision))
                 current += step
+                iterations += 1
             }
         } else {
-            while current >= end {
-                context.writeStdout(Self.formatNumber(current) + "\n")
+            while current >= end - epsilon {
+                guard iterations < maxIterations else { break }
+                rendered.append(Self.formatNumber(current, precision: precision))
                 current += step
+                iterations += 1
             }
         }
 
+        if options.w, !rendered.isEmpty {
+            let maxLength = rendered.map { $0.hasPrefix("-") ? $0.count - 1 : $0.count }.max() ?? 0
+            rendered = rendered.map { value in
+                let isNegative = value.hasPrefix("-")
+                let absolute = isNegative ? String(value.dropFirst()) : value
+                let padded = String(repeating: "0", count: max(0, maxLength - absolute.count)) + absolute
+                return isNegative ? "-" + padded : padded
+            }
+        }
+
+        context.writeStdout(rendered.joined(separator: separator))
+        if !rendered.isEmpty {
+            context.writeStdout("\n")
+        }
         return 0
     }
 
-    private static func formatNumber(_ value: Double) -> String {
-        if value.rounded() == value {
-            return String(Int(value))
+    private static func formatNumber(_ value: Double, precision: Int) -> String {
+        if precision > 0 {
+            return String(format: "%.\(precision)f", value)
+        }
+
+        let rounded = value.rounded()
+        if abs(value - rounded) < 1e-9 {
+            return String(Int(rounded))
         }
         return String(value)
+    }
+
+    private static func decimalPrecision(_ value: String) -> Int {
+        let lowercased = value.lowercased()
+        let mantissa = lowercased.split(separator: "e", maxSplits: 1, omittingEmptySubsequences: false).first ?? Substring(lowercased)
+        guard let dotIndex = mantissa.firstIndex(of: ".") else {
+            return 0
+        }
+        return mantissa.distance(from: mantissa.index(after: dotIndex), to: mantissa.endIndex)
     }
 }
 
 struct SleepCommand: BuiltinCommand {
     struct Options: ParsableArguments {
-        @Argument(help: "Number of seconds to sleep")
-        var seconds: Double
+        @Argument(help: "Duration(s), with optional suffix s/m/h/d")
+        var durations: [String] = []
     }
 
     static let name = "sleep"
@@ -189,9 +252,57 @@ struct SleepCommand: BuiltinCommand {
 
     static func run(context: inout CommandContext, options: Options) async -> Int32 {
         _ = context
-        let nanos = UInt64(max(0, options.seconds) * 1_000_000_000)
+        guard !options.durations.isEmpty else {
+            context.writeStderr("sleep: missing operand\n")
+            return 1
+        }
+
+        var totalSeconds = 0.0
+        for token in options.durations {
+            guard let seconds = parseDuration(token) else {
+                context.writeStderr("sleep: invalid time interval '\(token)'\n")
+                return 1
+            }
+            totalSeconds += seconds
+        }
+
+        let nanosDouble = max(0, totalSeconds) * 1_000_000_000
+        let nanos = UInt64(min(nanosDouble, Double(UInt64.max)))
         try? await Task.sleep(nanoseconds: nanos)
         return 0
+    }
+
+    private static func parseDuration(_ token: String) -> Double? {
+        guard !token.isEmpty else {
+            return nil
+        }
+
+        let suffix = token.last
+        let multiplier: Double
+        let numberPart: Substring
+
+        switch suffix {
+        case "s":
+            multiplier = 1
+            numberPart = token.dropLast()
+        case "m":
+            multiplier = 60
+            numberPart = token.dropLast()
+        case "h":
+            multiplier = 60 * 60
+            numberPart = token.dropLast()
+        case "d":
+            multiplier = 24 * 60 * 60
+            numberPart = token.dropLast()
+        default:
+            multiplier = 1
+            numberPart = Substring(token)
+        }
+
+        guard let value = Double(numberPart), value >= 0 else {
+            return nil
+        }
+        return value * multiplier
     }
 }
 
@@ -310,6 +421,12 @@ struct TrueCommand: BuiltinCommand {
 
 struct WhichCommand: BuiltinCommand {
     struct Options: ParsableArguments {
+        @Flag(name: .short, help: "List all matches in PATH order")
+        var a = false
+
+        @Flag(name: .short, help: "Do not print anything, just set status")
+        var s = false
+
         @Argument(help: "Command names")
         var names: [String] = []
     }
@@ -319,22 +436,63 @@ struct WhichCommand: BuiltinCommand {
 
     static func run(context: inout CommandContext, options: Options) async -> Int32 {
         guard !options.names.isEmpty else {
-            context.writeStderr("which: missing command name\n")
             return 1
         }
 
-        let available = Set(context.availableCommands)
-        var failed = false
+        let searchPaths = (context.environment["PATH"] ?? "/bin:/usr/bin")
+            .split(separator: ":")
+            .map(String.init)
+            .filter { !$0.isEmpty }
+
+        var allFound = true
 
         for name in options.names {
-            if available.contains(name) {
-                context.writeStdout("/bin/\(name)\n")
-            } else {
-                failed = true
+            let matches = await resolveMatches(
+                for: name,
+                searchPaths: searchPaths,
+                currentDirectory: context.currentDirectory,
+                filesystem: context.filesystem,
+                includeAll: options.a
+            )
+
+            if matches.isEmpty {
+                allFound = false
+                continue
+            }
+
+            if !options.s {
+                for match in matches {
+                    context.writeStdout("\(match)\n")
+                }
             }
         }
 
-        return failed ? 1 : 0
+        return allFound ? 0 : 1
+    }
+
+    private static func resolveMatches(
+        for name: String,
+        searchPaths: [String],
+        currentDirectory: String,
+        filesystem: any ShellFilesystem,
+        includeAll: Bool
+    ) async -> [String] {
+        if name.contains("/") {
+            let resolved = PathUtils.normalize(path: name, currentDirectory: currentDirectory)
+            return await filesystem.exists(path: resolved) ? [resolved] : []
+        }
+
+        var matches: [String] = []
+        for path in searchPaths {
+            let normalizedPath = PathUtils.normalize(path: path, currentDirectory: currentDirectory)
+            let candidate = PathUtils.join(normalizedPath, name)
+            if await filesystem.exists(path: candidate) {
+                matches.append(candidate)
+                if !includeAll {
+                    break
+                }
+            }
+        }
+        return matches
     }
 }
-

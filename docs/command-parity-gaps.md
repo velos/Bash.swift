@@ -181,9 +181,8 @@ Note: `just-bash` does not currently provide `zip`/`unzip` command implementatio
 Source references: `basename`, `dirname`, `du`, `echo`, `env`, `printenv`, `find`, `tee`.
 Shell builtins in `just-bash` handle `cd`, `export`, `pwd`.
 
-- `basename` (`P1`)  
-  Gap: missing suffix stripping (`-s`) parity.  
-  Plan: add optional suffix argument + `-a` semantics.
+- `basename` (`Done: 2026-02-07`)  
+  Gap closed for v1 target: supports `-a` and `-s <suffix>`.
 
 - `cd` (`P1`)  
   Gap: missing shell parity (`cd -`, `OLDPWD`, logical/physical modes).  
@@ -213,9 +212,8 @@ Shell builtins in `just-bash` handle `cd`, `export`, `pwd`.
   Gap: very small subset vs expression engine in `just-bash`; missing many predicates/actions (`-iname`, regex, size/perm/time, `-exec`, `-print0`, `-printf`, `-delete`, `-prune`, boolean operators).  
   Plan: build a small expression parser + evaluator incrementally; add `-exec` and `-print0` early for LLM scripts.
 
-- `printenv` (`P1`)  
-  Gap: missing non-zero exit for unknown variables.  
-  Plan: return `1` when any requested key is absent.
+- `printenv` (`Done: 2026-02-07`)  
+  Gap closed for v1 target: returns non-zero when any requested key is missing.
 
 - `pwd` (`P2`)  
   Gap: no `-L/-P` distinction.  
@@ -247,21 +245,18 @@ Source references: `clear`, `date`, `history`, `seq`, `sleep`, `time`, `timeout`
 - `whoami` (`P2`)  
   Gap: none material (session-level identity is acceptable).
 
-- `help` (`P1`)  
-  Gap: currently lists commands only; missing `help <command>` forwarding and category formatting.  
-  Plan: support optional command argument and delegate to `<cmd> --help`.
+- `help` (`P2`)  
+  Gap reduced: now supports `help <command>` forwarding. Remaining gap is categorized/grouped output formatting.
 
 - `history` (`P1`)  
   Gap: missing clear mode (`-c`) and numeric argument parity.  
   Plan: add clear/reset and ensure line numbering/padding compatibility.
 
-- `seq` (`P1`)  
-  Gap: missing `-s` separator and `-w` zero-padding.  
-  Plan: add separator/padding while retaining numeric parsing.
+- `seq` (`Done: 2026-02-07`)  
+  Gap closed for v1 target: supports `-s` separator and `-w` equal-width zero padding.
 
-- `sleep` (`P1`)  
-  Gap: only raw seconds accepted; missing duration suffixes (`s/m/h/d`) and multiple operands sum behavior.  
-  Plan: parse duration tokens and sum.
+- `sleep` (`Done: 2026-02-07`)  
+  Gap closed for v1 target: supports `NUMBER[SUFFIX]` (`s/m/h/d`) and sums multiple duration operands.
 
 - `time` (`P1`)  
   Gap: missing formatting/output options (`-p`, `-f`, `-o`, `-a`, `-v`).  
@@ -271,14 +266,13 @@ Source references: `clear`, `date`, `history`, `seq`, `sleep`, `time`, `timeout`
   Gap: duration parser is seconds-only, missing suffix support and option handling (`-k`, `-s`, `--preserve-status`, `--foreground`).  
   Plan: add duration parser + option parsing; keep signal model virtual.
 
-- `which` (`P1`)  
-  Gap: missing `-a` and `-s`.  
-  Plan: add all-match and silent modes.
+- `which` (`Done: 2026-02-07`)  
+  Gap closed for v1 target: supports `-a` (all matches) and `-s` (silent status mode).
 
 ## Closure Roadmap (Dependency-Light)
 
 1. `P0` engine gaps: `jq`, `yq`, `xan`, `grep`, `rg`, `awk`, `sed`, `find`, `cp/mv` multi-source, `file`.
-2. `P1` high-utility flags: `sort`, `tr`, `touch`, `tar`, `env`, `date`, `timeout`, `time`, `which`, `seq`, `sleep`.
+2. `P1` high-utility flags: `sort`, `tr`, `touch`, `tar`, `env`, `date`, `timeout`, `time`.
 3. `P2` polish/output parity: formatting consistency, extra flags, minor exit-code edge behavior.
 
 ## Test Expectations Per Gap

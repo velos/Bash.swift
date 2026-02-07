@@ -267,7 +267,7 @@ All implemented commands support `--help`.
 
 | Command | Supported Options |
 | --- | --- |
-| `basename` | positional paths |
+| `basename` | positional names; `-a`, `-s <suffix>` |
 | `cd` | optional positional path |
 | `dirname` | positional paths |
 | `du` | `-s` |
@@ -276,7 +276,7 @@ All implemented commands support `--help`.
 | `export` | positional `KEY=VALUE` assignments |
 | `find` | `--name <pattern>`, optional path |
 | `hostname` | none |
-| `printenv` | optional positional keys |
+| `printenv` | optional positional keys (non-zero if any key is missing) |
 | `pwd` | none |
 | `tee` | `-a` |
 
@@ -287,15 +287,15 @@ All implemented commands support `--help`.
 | `clear` | none |
 | `date` | `-u` |
 | `false` | none |
-| `help` | none |
+| `help` | optional command name (`help <command>`) |
 | `history` | `-n`, `--n` |
-| `seq` | positional number args |
-| `sleep` | positional seconds |
+| `seq` | `-s <separator>`, `-w`, positional numeric args |
+| `sleep` | positional durations (`NUMBER[SUFFIX]`, suffix: `s`, `m`, `h`, `d`) |
 | `time` | `time <command...>` |
 | `timeout` | `timeout <seconds> <command...>` |
 | `true` | none |
 | `whoami` | none |
-| `which` | positional command names |
+| `which` | `-a`, `-s`, positional command names |
 
 ## Command Behaviors and Notes
 

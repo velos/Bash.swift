@@ -3,20 +3,44 @@ import Foundation
 
 struct BasenameCommand: BuiltinCommand {
     struct Options: ParsableArguments {
-        @Argument(help: "Paths")
-        var paths: [String] = []
+        @Flag(name: [.short, .long], help: "Support multiple arguments")
+        var a = false
+
+        @Option(name: [.short, .customLong("suffix")], help: "Remove a trailing suffix")
+        var s: String?
+
+        @Argument(help: "Names (and optional suffix in single-name mode)")
+        var values: [String] = []
     }
 
     static let name = "basename"
     static let overview = "Strip directory and suffix from filenames"
 
     static func run(context: inout CommandContext, options: Options) async -> Int32 {
-        guard !options.paths.isEmpty else {
+        guard !options.values.isEmpty else {
             context.writeStderr("basename: missing operand\n")
             return 1
         }
-        for path in options.paths {
-            context.writeStdout(PathUtils.basename(path) + "\n")
+
+        let suffix: String?
+        let names: [String]
+        if options.a || options.s != nil {
+            suffix = options.s
+            names = options.values
+        } else if options.values.count >= 2 {
+            suffix = options.values.last
+            names = Array(options.values.dropLast())
+        } else {
+            suffix = nil
+            names = options.values
+        }
+
+        for name in names {
+            var base = PathUtils.basename(name)
+            if let suffix, !suffix.isEmpty, base.hasSuffix(suffix) {
+                base.removeLast(suffix.count)
+            }
+            context.writeStdout(base + "\n")
         }
         return 0
     }
@@ -298,14 +322,18 @@ struct PrintenvCommand: BuiltinCommand {
             for key in context.environment.keys.sorted() {
                 context.writeStdout("\(key)=\(context.environment[key] ?? "")\n")
             }
-        } else {
-            for key in options.keys {
-                if let value = context.environment[key] {
-                    context.writeStdout("\(value)\n")
-                }
+            return 0
+        }
+
+        var hadMissingKey = false
+        for key in options.keys {
+            if let value = context.environment[key] {
+                context.writeStdout("\(value)\n")
+            } else {
+                hadMissingKey = true
             }
         }
-        return 0
+        return hadMissingKey ? 1 : 0
     }
 }
 
@@ -354,4 +382,3 @@ struct TeeCommand: BuiltinCommand {
         return failed ? 1 : 0
     }
 }
-

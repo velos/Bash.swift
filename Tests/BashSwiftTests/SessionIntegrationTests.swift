@@ -149,6 +149,51 @@ struct SessionIntegrationTests {
         #expect(history.stdoutString.contains("3  history"))
     }
 
+    @Test("utility option parity chunk")
+    func utilityOptionParityChunk() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let helpSeq = await session.run("help seq")
+        #expect(helpSeq.exitCode == 0)
+        #expect(helpSeq.stdoutString.contains("USAGE:"))
+
+        let seqSeparated = await session.run("seq -s , 1 3")
+        #expect(seqSeparated.exitCode == 0)
+        #expect(seqSeparated.stdoutString == "1,2,3\n")
+
+        let seqPadded = await session.run("seq -w 8 10")
+        #expect(seqPadded.exitCode == 0)
+        #expect(seqPadded.stdoutString == "08\n09\n10\n")
+
+        let sleep = await session.run("sleep 0s 0.01s")
+        #expect(sleep.exitCode == 0)
+
+        let sleepInvalid = await session.run("sleep nope")
+        #expect(sleepInvalid.exitCode == 1)
+        #expect(sleepInvalid.stderrString.contains("invalid time interval"))
+
+        let basename = await session.run("basename -s .txt /tmp/a.txt /tmp/b.log")
+        #expect(basename.exitCode == 0)
+        #expect(basename.stdoutString == "a\nb.log\n")
+
+        let whichAll = await session.run("which -a ls")
+        #expect(whichAll.exitCode == 0)
+        #expect(whichAll.stdoutString.contains("/bin/ls\n"))
+        #expect(whichAll.stdoutString.contains("/usr/bin/ls\n"))
+
+        let whichSilent = await session.run("which -s ls")
+        #expect(whichSilent.exitCode == 0)
+        #expect(whichSilent.stdoutString.isEmpty)
+
+        let whichMissing = await session.run("which -s no_such_command")
+        #expect(whichMissing.exitCode == 1)
+
+        let printenvMissing = await session.run("printenv HOME DOES_NOT_EXIST")
+        #expect(printenvMissing.exitCode == 1)
+        #expect(printenvMissing.stdoutString.contains("/home/user\n"))
+    }
+
     @Test("printf base64 and digest commands")
     func printfBase64AndDigestCommands() async throws {
         let (session, root) = try await TestSupport.makeSession()
