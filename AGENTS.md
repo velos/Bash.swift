@@ -122,6 +122,8 @@ Utility commands:
 Network commands:
 - `Sources/BashSwift/Commands/NetworkCommands.swift`
   - `curl`
+- `Sources/BashSwift/Commands/Network/HtmlToMarkdownCommand.swift`
+  - `html-to-markdown`
 
 ## Filesystem Architecture
 

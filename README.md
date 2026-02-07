@@ -303,6 +303,7 @@ All implemented commands support `--help`.
 | Command | Supported Options |
 | --- | --- |
 | `curl` | URL argument; `-s`, `-S`, `-i`, `-I`, `-f`, `-L`, `-v`, `-X <method>`, `-H <header>...`, `-A <ua>`, `-e <referer>`, `-u <user:pass>`, `-b <cookie|@file>`, `-c <cookie-jar-file>`, `-d/--data <value>...`, `--data-raw <value>...`, `--data-binary <value>...`, `--data-urlencode <value>...`, `-T <file>`, `-F <name=value|name=@file>`, `-o <file>`, `-O`, `-w <format>`, `-m <seconds>`, `--connect-timeout <seconds>`, `--max-redirs <count>`; supports `data:`, `file:`, and HTTP(S) URLs (`file:` is scoped to the shell filesystem root) |
+| `html-to-markdown` | `-b/--bullet <marker>`, `-c/--code <fence>`, `-r/--hr <rule>`, `--heading-style <atx|setext>`; input from file or stdin; strips `script/style/footer` blocks; supports nested lists and Markdown table rendering |
 
 ## Command Behaviors and Notes
 
@@ -322,11 +323,10 @@ The project currently includes parser, filesystem, integration, and command cove
 ## Roadmap
 
 ### Priority (next)
-1. `html-to-markdown`
-2. `curl` parity expansion
-3. `xargs` parity expansion
+1. `curl` parity expansion
+2. `xargs` parity expansion
 
 ### Deferred for later milestones
 - `sqlite3`, `python`, `python3`
-- `curl` advanced HTTP parity, `html-to-markdown`
+- `curl` advanced HTTP parity
 - `xargs` advanced GNU compatibility

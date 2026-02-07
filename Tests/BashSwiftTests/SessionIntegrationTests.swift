@@ -843,4 +843,98 @@ struct SessionIntegrationTests {
         #expect(unsupported.exitCode != 0)
         #expect(unsupported.stderrString.contains("unsupported URL scheme"))
     }
+
+    @Test("html-to-markdown command parity chunk")
+    func htmlToMarkdownCommandParityChunk() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let heading = await session.run("echo '<h1>Hello World</h1>' | html-to-markdown")
+        #expect(heading.exitCode == 0)
+        #expect(heading.stdoutString == "# Hello World\n")
+
+        let paragraph = await session.run("echo '<p>First paragraph.</p><p>Second paragraph.</p>' | html-to-markdown")
+        #expect(paragraph.exitCode == 0)
+        #expect(paragraph.stdoutString.contains("First paragraph."))
+        #expect(paragraph.stdoutString.contains("Second paragraph."))
+
+        let link = await session.run("echo '<a href=\"https://example.com\">Click here</a>' | html-to-markdown")
+        #expect(link.exitCode == 0)
+        #expect(link.stdoutString == "[Click here](https://example.com)\n")
+
+        let styles = await session.run("echo '<strong>bold</strong> and <em>italic</em>' | html-to-markdown")
+        #expect(styles.exitCode == 0)
+        #expect(styles.stdoutString == "**bold** and _italic_\n")
+
+        let unordered = await session.run("echo '<ul><li>One</li><li>Two</li></ul>' | html-to-markdown -b '*'")
+        #expect(unordered.exitCode == 0)
+        #expect(unordered.stdoutString.contains("* One"))
+        #expect(unordered.stdoutString.contains("* Two"))
+
+        let ordered = await session.run("echo '<ol><li>First</li><li>Second</li></ol>' | html-to-markdown")
+        #expect(ordered.exitCode == 0)
+        #expect(ordered.stdoutString.contains("1. First"))
+        #expect(ordered.stdoutString.contains("2. Second"))
+
+        let fenced = await session.run("echo '<pre><code>const x = 1;</code></pre>' | html-to-markdown -c '~~~'")
+        #expect(fenced.exitCode == 0)
+        #expect(fenced.stdoutString.contains("~~~"))
+        #expect(fenced.stdoutString.contains("const x = 1;"))
+
+        let hr = await session.run("echo '<hr>' | html-to-markdown -r '***'")
+        #expect(hr.exitCode == 0)
+        #expect(hr.stdoutString.contains("***"))
+
+        let setext = await session.run("echo '<h1>Title</h1>' | html-to-markdown --heading-style setext")
+        #expect(setext.exitCode == 0)
+        #expect(setext.stdoutString.contains("Title"))
+        #expect(setext.stdoutString.contains("==="))
+
+        _ = await session.run("printf '<h2>From File</h2>' > page.html")
+        let fromFile = await session.run("html-to-markdown page.html")
+        #expect(fromFile.exitCode == 0)
+        #expect(fromFile.stdoutString == "## From File\n")
+
+        let missingFile = await session.run("html-to-markdown missing.html")
+        #expect(missingFile.exitCode == 1)
+        #expect(missingFile.stderrString.contains("No such file or directory"))
+
+        let stripsScriptAndStyle = await session.run(
+            "echo '<style>.red{color:red;}</style><h1>Title</h1><script>alert(1);</script><p>Text</p>' | html-to-markdown"
+        )
+        #expect(stripsScriptAndStyle.exitCode == 0)
+        #expect(stripsScriptAndStyle.stdoutString.contains("# Title"))
+        #expect(stripsScriptAndStyle.stdoutString.contains("Text"))
+        #expect(!stripsScriptAndStyle.stdoutString.contains("alert"))
+        #expect(!stripsScriptAndStyle.stdoutString.contains("color"))
+
+        let nestedList = await session.run(
+            "echo '<ul><li>Parent<ul><li>Child One</li><li>Child Two</li></ul></li><li>Sibling</li></ul>' | html-to-markdown"
+        )
+        #expect(nestedList.exitCode == 0)
+        #expect(nestedList.stdoutString.contains("- Parent"))
+        #expect(nestedList.stdoutString.contains("  - Child One"))
+        #expect(nestedList.stdoutString.contains("  - Child Two"))
+        #expect(nestedList.stdoutString.contains("- Sibling"))
+
+        let table = await session.run(
+            "echo '<table><thead><tr><th>Name</th><th>Age</th></tr></thead><tbody><tr><td>Alice</td><td>30</td></tr><tr><td>Bob</td><td>25</td></tr></tbody></table>' | html-to-markdown"
+        )
+        #expect(table.exitCode == 0)
+        #expect(table.stdoutString.contains("| Name | Age |"))
+        #expect(table.stdoutString.contains("| --- | --- |"))
+        #expect(table.stdoutString.contains("| Alice | 30 |"))
+        #expect(table.stdoutString.contains("| Bob | 25 |"))
+
+        let tableNoHeaders = await session.run(
+            "echo '<table><tr><td>Lang</td><td>Creator</td></tr><tr><td>Swift</td><td>Apple</td></tr></table>' | html-to-markdown"
+        )
+        #expect(tableNoHeaders.exitCode == 0)
+        #expect(tableNoHeaders.stdoutString.contains("| Lang | Creator |"))
+        #expect(tableNoHeaders.stdoutString.contains("| Swift | Apple |"))
+
+        let empty = await session.run("echo '' | html-to-markdown")
+        #expect(empty.exitCode == 0)
+        #expect(empty.stdoutString.isEmpty)
+    }
 }

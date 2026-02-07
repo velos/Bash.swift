@@ -273,11 +273,15 @@ Source references: `clear`, `date`, `history`, `seq`, `sleep`, `time`, `timeout`
 
 ## Network Commands
 
-Source references: `curl`.
+Source references: `curl`, `html-to-markdown`.
 
 - `curl` (`P1`)  
   Gap: expanded subset now supports `-s/-S`, `-i`, `-I`, `-f`, `-L`, `-v`, `-X`, `-H`, `-A`, `-e`, `-u`, `-b` (literal and `@file`), `-c` cookie-jar output, `-d/--data`, `--data-raw`, `--data-binary`, `--data-urlencode`, `-T`, `-F`, `-o`, `-O`, `-w`, `-m`, `--connect-timeout`, and `--max-redirs`, with URL support for `data:`, `file:`, and HTTP(S). `file:` remains jailed to the shell filesystem and rejects remote hosts (for example, `file://evil.com/...`).
   Plan: close remaining high-value gaps in slices: stronger redirect-policy parity (`-L` semantics and detailed redirect messaging), richer cookie compatibility (full curl jar semantics and edge parsing), and deeper multipart/upload and verbose/error-code parity. Keep allow-list policy as a separate safety feature.
+
+- `html-to-markdown` (`P1`)  
+  Gap: practical conversion now supports stdin/file input, heading/paragraph/link/image/list/blockquote/inline-style conversion, `-b/--bullet`, `-c/--code`, `-r/--hr`, and `--heading-style`, with `script/style/footer` stripping, nested-list indentation, and Markdown table rendering (`table/tr/th/td`). Remaining gap is robustness parity with turndown for malformed/deeply irregular HTML and advanced table semantics (colspan/rowspan/alignment).
+  Plan: focus next on malformed-markup recovery and better table semantics without adding external HTML conversion dependencies.
 
 ## Closure Roadmap (Dependency-Light)
 
