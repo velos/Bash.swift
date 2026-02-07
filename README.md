@@ -239,6 +239,15 @@ All implemented commands support `--help`.
 | `sha1sum` | optional files (or stdin) |
 | `md5sum` | optional files (or stdin) |
 
+### Compression & Archives
+
+| Command | Supported Options |
+| --- | --- |
+| `gzip` | `-d`, `--decompress`, `-c`, `-k`, `-f` |
+| `gunzip` | `-c`, `-k`, `-f` |
+| `zcat` | positional files (or stdin) |
+| `tar` | `-c`, `-x`, `-t`, `-z`, `-f <archive>`, `-C <dir>` |
+
 ### Navigation & Environment
 
 | Command | Supported Options |
@@ -291,13 +300,12 @@ The project currently includes parser, filesystem, integration, and command cove
 ## Roadmap
 
 ### Priority (next)
-1. `gzip`, `gunzip`, `zcat`, `tar`
-2. `jq`, `yq`, `xan`
-3. `curl`
-4. `xargs`
+1. `jq`, `yq`, `xan`
+2. `curl`
+3. `xargs`
+4. `zip`, `unzip`
 
 ### Deferred for later milestones
 - `jq`, `yq`, `xan`, `sqlite3`, `python`, `python3`
-- `gzip`, `gunzip`, `zcat`, `tar`
 - `curl`, `html-to-markdown`
 - `xargs`

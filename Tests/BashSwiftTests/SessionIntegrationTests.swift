@@ -288,4 +288,63 @@ struct SessionIntegrationTests {
         #expect(sedGlobal.exitCode == 0)
         #expect(sedGlobal.stdoutString == "bar bar\n")
     }
+
+    @Test("gzip gunzip zcat and tar commands")
+    func gzipGunzipZcatAndTarCommands() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        _ = await session.run("printf 'hello\\n' > note.txt")
+
+        let gzip = await session.run("gzip note.txt")
+        #expect(gzip.exitCode == 0)
+
+        let missingOriginal = await session.run("cat note.txt")
+        #expect(missingOriginal.exitCode != 0)
+
+        let zcat = await session.run("zcat note.txt.gz")
+        #expect(zcat.exitCode == 0)
+        #expect(zcat.stdoutString == "hello\n")
+
+        let gunzip = await session.run("gunzip note.txt.gz")
+        #expect(gunzip.exitCode == 0)
+
+        let restored = await session.run("cat note.txt")
+        #expect(restored.exitCode == 0)
+        #expect(restored.stdoutString == "hello\n")
+
+        _ = await session.run("mkdir -p pkg/sub")
+        _ = await session.run("printf 'A\\n' > pkg/a.txt")
+        _ = await session.run("printf 'B\\n' > pkg/sub/b.txt")
+
+        let createTar = await session.run("tar -cf archive.tar pkg")
+        #expect(createTar.exitCode == 0)
+
+        let listTar = await session.run("tar -tf archive.tar")
+        #expect(listTar.exitCode == 0)
+        #expect(listTar.stdoutString.contains("pkg/\n"))
+        #expect(listTar.stdoutString.contains("pkg/a.txt\n"))
+        #expect(listTar.stdoutString.contains("pkg/sub/b.txt\n"))
+
+        _ = await session.run("rm -r pkg")
+
+        let extractTar = await session.run("tar -xf archive.tar")
+        #expect(extractTar.exitCode == 0)
+
+        let extractedA = await session.run("cat pkg/a.txt")
+        #expect(extractedA.exitCode == 0)
+        #expect(extractedA.stdoutString == "A\n")
+
+        let createTgz = await session.run("tar -czf archive.tgz pkg")
+        #expect(createTgz.exitCode == 0)
+
+        _ = await session.run("rm -r pkg")
+
+        let extractTgz = await session.run("tar -xzf archive.tgz")
+        #expect(extractTgz.exitCode == 0)
+
+        let extractedB = await session.run("cat pkg/sub/b.txt")
+        #expect(extractedB.exitCode == 0)
+        #expect(extractedB.stdoutString == "B\n")
+    }
 }

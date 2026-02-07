@@ -101,6 +101,10 @@ Formatting/hash commands:
 - `Sources/BashSwift/Commands/FormattingCommands.swift`
   - `printf`, `base64`, `sha256sum`, `sha1sum`, `md5sum`
 
+Compression/archive commands:
+- `Sources/BashSwift/Commands/CompressionCommands.swift`
+  - `gzip`, `gunzip`, `zcat`, `tar`
+
 Navigation/environment commands:
 - `Sources/BashSwift/Commands/NavigationCommands.swift`
   - `basename`, `cd`, `dirname`, `du`, `echo`, `env`, `export`, `find`, `printenv`, `pwd`, `tee`
@@ -194,4 +198,3 @@ If you add a new built-in command:
 2. Add it to the coverage list in `Tests/BashSwiftTests/CommandCoverageTests.swift`.
 3. Add integration tests for at least one success and one failure/edge case.
 4. Ensure `--help` output works and invalid flag behavior is non-zero.
-
