@@ -267,6 +267,14 @@ Source references: `clear`, `date`, `history`, `seq`, `sleep`, `time`, `timeout`
 - `which` (`Done: 2026-02-07`)  
   Gap closed for v1 target: supports `-a` (all matches) and `-s` (silent status mode).
 
+## Network Commands
+
+Source references: `curl`.
+
+- `curl` (`P1`)  
+  Gap: expanded subset now supports `-s/-S`, `-i`, `-I`, `-f`, `-L`, `-v`, `-X`, `-H`, `-A`, `-e`, `-u`, `-b` (literal and `@file`), `-c` cookie-jar output, `-d/--data`, `--data-raw`, `--data-binary`, `--data-urlencode`, `-T`, `-F`, `-o`, `-O`, `-w`, `-m`, `--connect-timeout`, and `--max-redirs`, with URL support for `data:`, `file:`, and HTTP(S). `file:` remains jailed to the shell filesystem and rejects remote hosts (for example, `file://evil.com/...`).
+  Plan: close remaining high-value gaps in slices: stronger redirect-policy parity (`-L` semantics and detailed redirect messaging), richer cookie compatibility (full curl jar semantics and edge parsing), and deeper multipart/upload and verbose/error-code parity. Keep allow-list policy as a separate safety feature.
+
 ## Closure Roadmap (Dependency-Light)
 
 1. `P0` engine gaps: `xan`, `awk`, `sed`, `find`, `cp/mv` multi-source, `file`.

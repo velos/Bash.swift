@@ -668,4 +668,116 @@ struct SessionIntegrationTests {
         let yqExit = await session.run("yq -e -n 'null'")
         #expect(yqExit.exitCode == 1)
     }
+
+    @Test("curl command basic data and file usage")
+    func curlCommandBasicDataAndFileUsage() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let dataURL = await session.run("curl data:text/plain,hello%20world")
+        #expect(dataURL.exitCode == 0)
+        #expect(dataURL.stdoutString == "hello world")
+
+        let headDataURL = await session.run("curl -I data:text/plain,hello%20world")
+        #expect(headDataURL.exitCode == 0)
+        #expect(headDataURL.stdoutString.contains("HTTP/1.1 200"))
+        #expect(!headDataURL.stdoutString.contains("hello world"))
+
+        let writeOut = await session.run("curl -w '\\n%{http_code}\\n' data:text/plain,ok")
+        #expect(writeOut.exitCode == 0)
+        #expect(writeOut.stdoutString.hasSuffix("\n200\n"))
+
+        let writeOutFields = await session.run("curl -s -w ' %{content_type} %{size_download} %{url_effective}' data:text/plain,ok")
+        #expect(writeOutFields.exitCode == 0)
+        #expect(writeOutFields.stdoutString.contains("text/plain"))
+        #expect(writeOutFields.stdoutString.contains("2"))
+        #expect(writeOutFields.stdoutString.contains("data:text/plain,ok"))
+
+        let cookieJarDataURL = await session.run("curl -c cookie-jar.txt data:text/plain,ok")
+        #expect(cookieJarDataURL.exitCode == 0)
+
+        let cookieJarFile = await session.run("cat cookie-jar.txt")
+        #expect(cookieJarFile.exitCode == 0)
+        #expect(cookieJarFile.stdoutString.contains("Netscape HTTP Cookie File"))
+
+        let outputFile = await session.run("curl -o fetched.txt data:text/plain,payload")
+        #expect(outputFile.exitCode == 0)
+        #expect(outputFile.stdoutString.isEmpty)
+
+        let fetched = await session.run("cat fetched.txt")
+        #expect(fetched.exitCode == 0)
+        #expect(fetched.stdoutString == "payload")
+
+        let outputWithWriteOut = await session.run("curl -o fetched2.txt -w '%{size_download}' data:text/plain,payload")
+        #expect(outputWithWriteOut.exitCode == 0)
+        #expect(outputWithWriteOut.stdoutString == "7")
+
+        let fetched2 = await session.run("cat fetched2.txt")
+        #expect(fetched2.exitCode == 0)
+        #expect(fetched2.stdoutString == "payload")
+
+        let hostReadBeforeSandboxFile = await session.run("curl file:///etc/hosts")
+        #expect(hostReadBeforeSandboxFile.exitCode != 0)
+
+        _ = await session.run("mkdir -p /etc")
+        _ = await session.run("printf 'sandbox-hosts\\n' > /etc/hosts")
+
+        let fileURL = await session.run("curl file:///etc/hosts")
+        #expect(fileURL.exitCode == 0)
+        #expect(fileURL.stdoutString == "sandbox-hosts\n")
+
+        let traversalFileURL = await session.run("curl file:///../../../../etc/hosts")
+        #expect(traversalFileURL.exitCode == 0)
+        #expect(traversalFileURL.stdoutString == "sandbox-hosts\n")
+
+        let encodedTraversalFileURL = await session.run("curl file:///%2e%2e/%2e%2e/%2e%2e/%2e%2e/etc/hosts")
+        #expect(encodedTraversalFileURL.exitCode == 0)
+        #expect(encodedTraversalFileURL.stdoutString == "sandbox-hosts\n")
+
+        let remoteName = await session.run("curl -O file:///etc/hosts")
+        #expect(remoteName.exitCode == 0)
+        #expect(remoteName.stdoutString.isEmpty)
+
+        let remoteNamedFile = await session.run("cat hosts")
+        #expect(remoteNamedFile.exitCode == 0)
+        #expect(remoteNamedFile.stdoutString == "sandbox-hosts\n")
+
+        let combinedFlags = await session.run("curl -sSfL data:text/plain,ok")
+        #expect(combinedFlags.exitCode == 0)
+        #expect(combinedFlags.stdoutString == "ok")
+
+        let connectTimeout = await session.run("curl --connect-timeout 1 data:text/plain,ok")
+        #expect(connectTimeout.exitCode == 0)
+
+        let maxRedirs = await session.run("curl --max-redirs 5 data:text/plain,ok")
+        #expect(maxRedirs.exitCode == 0)
+
+        let dataRawLiteral = await session.run("curl --data-raw @literal data:text/plain,ok")
+        #expect(dataRawLiteral.exitCode == 0)
+        #expect(dataRawLiteral.stdoutString == "ok")
+
+        let formSimple = await session.run("curl -F name=value data:text/plain,ok")
+        #expect(formSimple.exitCode == 0)
+        #expect(formSimple.stdoutString == "ok")
+
+        let missingUpload = await session.run("curl -T missing-upload.bin data:text/plain,ok")
+        #expect(missingUpload.exitCode != 0)
+        #expect(missingUpload.stderrString.contains("missing-upload.bin"))
+
+        let missingFormFile = await session.run("curl -F file=@missing-form.bin data:text/plain,ok")
+        #expect(missingFormFile.exitCode != 0)
+        #expect(missingFormFile.stderrString.contains("missing-form.bin"))
+
+        let authAndHeaderFlags = await session.run("curl -A Agent/1.0 -e https://example.com -u user:pass -b session=abc data:text/plain,ok")
+        #expect(authAndHeaderFlags.exitCode == 0)
+        #expect(authAndHeaderFlags.stdoutString == "ok")
+
+        let remoteFileHost = await session.run("curl file://evil.com/etc/hosts")
+        #expect(remoteFileHost.exitCode != 0)
+        #expect(remoteFileHost.stderrString.contains("remote file host not supported"))
+
+        let unsupported = await session.run("curl ftp://example.com/data")
+        #expect(unsupported.exitCode != 0)
+        #expect(unsupported.stderrString.contains("unsupported URL scheme"))
+    }
 }

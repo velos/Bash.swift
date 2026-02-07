@@ -117,6 +117,10 @@ Utility commands:
 - `Sources/BashSwift/Commands/UtilityCommands.swift`
   - `clear`, `date`, `hostname`, `false`, `whoami`, `help`, `history`, `seq`, `sleep`, `time`, `timeout`, `true`, `which`
 
+Network commands:
+- `Sources/BashSwift/Commands/NetworkCommands.swift`
+  - `curl`
+
 ## Filesystem Architecture
 
 Filesystem protocol:

@@ -54,6 +54,7 @@ extension BashSession {
             PrintenvCommand.self,
             PwdCommand.self,
             TeeCommand.self,
+            CurlCommand.self,
             ClearCommand.self,
             DateCommand.self,
             HostnameCommand.self,

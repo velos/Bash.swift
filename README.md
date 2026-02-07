@@ -297,6 +297,12 @@ All implemented commands support `--help`.
 | `whoami` | none |
 | `which` | `-a`, `-s`, positional command names |
 
+### Network Commands
+
+| Command | Supported Options |
+| --- | --- |
+| `curl` | URL argument; `-s`, `-S`, `-i`, `-I`, `-f`, `-L`, `-v`, `-X <method>`, `-H <header>...`, `-A <ua>`, `-e <referer>`, `-u <user:pass>`, `-b <cookie|@file>`, `-c <cookie-jar-file>`, `-d/--data <value>...`, `--data-raw <value>...`, `--data-binary <value>...`, `--data-urlencode <value>...`, `-T <file>`, `-F <name=value|name=@file>`, `-o <file>`, `-O`, `-w <format>`, `-m <seconds>`, `--connect-timeout <seconds>`, `--max-redirs <count>`; supports `data:`, `file:`, and HTTP(S) URLs (`file:` is scoped to the shell filesystem root) |
+
 ## Command Behaviors and Notes
 
 - Unknown commands return exit code `127` and write `command not found` to `stderr`.
@@ -315,11 +321,11 @@ The project currently includes parser, filesystem, integration, and command cove
 ## Roadmap
 
 ### Priority (next)
-1. `curl`
-2. `xargs`
-3. `html-to-markdown`
+1. `xargs`
+2. `html-to-markdown`
+3. `curl` parity expansion
 
 ### Deferred for later milestones
 - `sqlite3`, `python`, `python3`
-- `curl`, `html-to-markdown`
+- `curl` advanced HTTP parity, `html-to-markdown`
 - `xargs`
