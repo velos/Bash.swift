@@ -238,6 +238,7 @@ All implemented commands support `--help`.
 | `tr` | `-d`, `-s`, `-c`; supports escapes (`\\n`, `\\t`, `\\r`) and ranges (`a-z`) |
 | `awk` | `-F <separator>`; supports `{print}`, `{print $N}`, `/regex/ {print ...}` |
 | `sed` | substitution scripts only: `s/pattern/replacement/` and `s/.../.../g` |
+| `xargs` | `-I <replace>`, `-d <delim>`, `-n <max-args>`, `-P <max-procs>`, `-0/--null`, `-t/--verbose`, `-r/--no-run-if-empty`; default command `echo` |
 | `printf` | format string + positional values (`%s`, `%d`, `%i`, `%f`, `%%`) |
 | `base64` | encode by default; `-d`, `--decode` |
 | `sha256sum` | optional files (or stdin) |
@@ -321,11 +322,11 @@ The project currently includes parser, filesystem, integration, and command cove
 ## Roadmap
 
 ### Priority (next)
-1. `xargs`
-2. `html-to-markdown`
-3. `curl` parity expansion
+1. `html-to-markdown`
+2. `curl` parity expansion
+3. `xargs` parity expansion
 
 ### Deferred for later milestones
 - `sqlite3`, `python`, `python3`
 - `curl` advanced HTTP parity, `html-to-markdown`
-- `xargs`
+- `xargs` advanced GNU compatibility

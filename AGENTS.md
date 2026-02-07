@@ -96,6 +96,8 @@ Text/search/transform commands:
   - `awk`
 - `Sources/BashSwift/Commands/Text/SedCommand.swift`
   - `sed`
+- `Sources/BashSwift/Commands/Text/XargsCommand.swift`
+  - `xargs`
 
 Formatting/hash commands:
 - `Sources/BashSwift/Commands/FormattingCommands.swift`

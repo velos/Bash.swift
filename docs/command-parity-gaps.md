@@ -81,7 +81,7 @@ Source references: `cat`, `cp`, `ln`, `ls`, `mkdir`, `mv`, `readlink`, `rm`, `rm
 
 ## Text Processing
 
-Source references: `grep`, `rg`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, `tr`, `awk`, `sed`, `printf`, `base64`, `md5sum`, `sha1sum`, `sha256sum`.
+Source references: `grep`, `rg`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, `tr`, `awk`, `sed`, `xargs`, `printf`, `base64`, `md5sum`, `sha1sum`, `sha256sum`.
 
 - `grep` (`P1`)  
   Gap: now supports regex/fixed modes and major flags (`-E/-F/-c/-l/-L/-o/-w/-x/-r`, `-e/-f`, aliases). Remaining gaps are mainly context-grouping/output polish and deeper GNU compatibility edges.
@@ -124,6 +124,10 @@ Source references: `grep`, `rg`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, `t
 - `sed` (`P0`)  
   Gap: current command subset is limited (`s`/`p`) with partial addressing; `-E` currently parsed but not meaningfully applied.  
   Plan: implement command AST + executor phases: (`d`,`a`,`i`,`c`,`g/G`,`h/H`,`x`,`n/N`,`y`,`q`,`b/t/:`) plus `-f`; keep engine internal.
+
+- `xargs` (`P1`)  
+  Gap: practical subset is now implemented (`-I`, `-d`, `-n`, `-P`, `-0/--null`, `-t/--verbose`, `-r/--no-run-if-empty`) with command execution via shell subcommands and cwd propagation. Remaining gaps are deeper GNU edge compatibility (`-L`, `-E`, size limits, prompt mode, and exact empty-input semantics).
+  Plan: keep the current execution engine and add option-surface/edge-semantics parity incrementally, starting with `-L` and stricter delimiter/quoting behavior.
 
 - `printf` (`P1`)  
   Gap: missing width/precision/flag formatting, `%x/%o`, `-v` assignment.  

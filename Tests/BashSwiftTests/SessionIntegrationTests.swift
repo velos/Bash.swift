@@ -577,6 +577,69 @@ struct SessionIntegrationTests {
         #expect(extractedZip.stdoutString == "two\n")
     }
 
+    @Test("xargs command parity chunk")
+    func xargsCommandParityChunk() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        _ = await session.run("printf 'content1' > file1.txt")
+        _ = await session.run("printf 'content2' > file2.txt")
+
+        let defaultEcho = await session.run("echo 'a b c' | xargs")
+        #expect(defaultEcho.exitCode == 0)
+        #expect(defaultEcho.stdoutString == "a b c\n")
+
+        let withCommand = await session.run("echo 'file1.txt file2.txt' | xargs cat")
+        #expect(withCommand.exitCode == 0)
+        #expect(withCommand.stdoutString == "content1content2")
+
+        let batched = await session.run("echo 'a b c d' | xargs -n 2 echo")
+        #expect(batched.exitCode == 0)
+        #expect(batched.stdoutString == "a b\nc d\n")
+
+        let replaced = await session.run("printf 'a\\nb\\nc' | xargs -I {} echo file-{}")
+        #expect(replaced.exitCode == 0)
+        #expect(replaced.stdoutString == "file-a\nfile-b\nfile-c\n")
+
+        let nullSeparatedInput = Data("file1".utf8) + Data([0]) + Data("file2".utf8) + Data([0]) + Data("file3".utf8)
+        let nullSeparated = await session.run("xargs -0 echo", stdin: nullSeparatedInput)
+        #expect(nullSeparated.exitCode == 0)
+        #expect(nullSeparated.stdoutString == "file1 file2 file3\n")
+
+        let delimited = await session.run("echo 'hello world:foo bar:test' | xargs -d : -n 1 echo")
+        #expect(delimited.exitCode == 0)
+        #expect(delimited.stdoutString == "hello world\nfoo bar\ntest\n")
+
+        let verbose = await session.run("echo 'x y' | xargs -t echo")
+        #expect(verbose.exitCode == 0)
+        #expect(verbose.stdoutString == "x y\n")
+        #expect(verbose.stderrString.contains("echo x y\n"))
+
+        let noRunIfEmpty = await session.run("echo '' | xargs -r echo nonempty")
+        #expect(noRunIfEmpty.exitCode == 0)
+        #expect(noRunIfEmpty.stdoutString.isEmpty)
+
+        let prefixed = await session.run("echo 'a b c' | xargs echo prefix")
+        #expect(prefixed.exitCode == 0)
+        #expect(prefixed.stdoutString == "prefix a b c\n")
+
+        _ = await session.run("mkdir -p project/data")
+        _ = await session.run("printf 'A' > project/data/a.txt")
+        _ = await session.run("printf 'B' > project/data/b.txt")
+
+        let respectsCwd = await session.run("cd project && printf 'data/a.txt\\ndata/b.txt' | xargs -d '\\n' cat")
+        #expect(respectsCwd.exitCode == 0)
+        #expect(respectsCwd.stdoutString == "AB")
+
+        let parallel = await session.run("echo '1 2 3' | xargs -P 2 -n 1 echo item:")
+        #expect(parallel.exitCode == 0)
+        #expect(parallel.stdoutString == "item: 1\nitem: 2\nitem: 3\n")
+
+        let missingFile = await session.run("echo 'missing.txt' | xargs cat")
+        #expect(missingFile.exitCode != 0)
+        #expect(missingFile.stderrString.contains("missing.txt"))
+    }
+
     @Test("jq yq and xan commands")
     func jqYqAndXanCommands() async throws {
         let (session, root) = try await TestSupport.makeSession()

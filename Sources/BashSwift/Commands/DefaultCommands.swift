@@ -29,6 +29,7 @@ extension BashSession {
             TrCommand.self,
             AwkCommand.self,
             SedCommand.self,
+            XargsCommand.self,
             PrintfCommand.self,
             Base64Command.self,
             Sha256sumCommand.self,
