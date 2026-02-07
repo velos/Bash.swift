@@ -229,13 +229,13 @@ All implemented commands support `--help`.
 | --- | --- |
 | `grep` | `-i`, `-v`, `-n` (`egrep`, `fgrep` aliases) |
 | `rg` | `-i`, `-n`, `-l`; `<pattern> [paths...]` |
-| `head` | `-n`, `--n` |
-| `tail` | `-n`, `--n` |
-| `wc` | `-l`, `-w`, `-c` |
-| `sort` | `-r` |
-| `uniq` | `-c` |
-| `cut` | `-d <delimiter>`, `-f <fields>` |
-| `tr` | positional source/destination char sets |
+| `head` | `-n`, `--n`, `-c`, `-q`, `-v` |
+| `tail` | `-n`, `--n` (supports `+N`), `-c`, `-q`, `-v` |
+| `wc` | `-l`, `-w`, `-c`, `-m`, `--chars` |
+| `sort` | `-r`, `-n`, `-u`, `-f`, `-c`, `-k <field>`, `-o <file>` |
+| `uniq` | `-c`, `-d`, `-u`, `-i`; optional `[input [output]]` operands |
+| `cut` | `-d <delimiter>`, `-f <list>`, `-c <list>`, `-s` (`list`: `N`, `N-M`, `-M`, `N-`) |
+| `tr` | `-d`, `-s`, `-c`; supports escapes (`\\n`, `\\t`, `\\r`) and ranges (`a-z`) |
 | `awk` | `-F <separator>`; supports `{print}`, `{print $N}`, `/regex/ {print ...}` |
 | `sed` | substitution scripts only: `s/pattern/replacement/` and `s/.../.../g` |
 | `printf` | format string + positional values (`%s`, `%d`, `%i`, `%f`, `%%`) |

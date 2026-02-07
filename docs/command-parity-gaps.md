@@ -91,33 +91,31 @@ Source references: `grep`, `rg`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, `t
   Gap: broad feature gap vs ripgrep-like behavior (pattern files, type filters, no-ignore modes, max-count, output modes, stats, JSON/vimgrep).  
   Plan: keep current core; add high-value subset for LLM workflows: `-e/-f/-m/-w/-x/--no-ignore/-t/-T` and better file filtering first.
 
-- `head` (`P1`)  
-  Gap: missing `-q/-v` header behavior parity for multi-file use.  
-  Plan: add quiet/verbose switches and align headers.
+- `head` (`Done: 2026-02-07`)  
+  Gap closed for v1 target: supports `-q/-v` header behavior and byte/line modes.
 
-- `tail` (`P1`)  
-  Gap: missing `-q/-v` and `-n +N` semantics.  
-  Plan: add `from-line` mode (`+N`) and header controls.
+- `tail` (`Done: 2026-02-07`)  
+  Gap closed for v1 target: supports `-q/-v` and `-n +N` (from-line) semantics.
 
-- `wc` (`P1`)  
-  Gap: missing `-m/--chars` and parity formatting nuances.  
-  Plan: add character-count mode (grapheme-aware) and align totals formatting.
+- `wc` (`P2`)  
+  Gap: now supports `-m/--chars`; remaining delinquencies are mostly output-format parity nuances.
+  Plan: align column formatting/spacing to common wc output conventions.
 
 - `sort` (`P0`)  
-  Gap: missing many common flags (`-b/-d/-f/-h/-M/-V/-c/-o/-s/-t`) and robust key-spec parser.  
-  Plan: expand comparator pipeline incrementally; add check-only and output-file early.
+  Gap: now supports `-f`, `-c`, and `-o`; still missing many common flags (`-b/-d/-h/-M/-V/-s/-t`) and robust key-spec parser.  
+  Plan: expand comparator pipeline incrementally; keep key-spec parser and advanced comparators as next slice.
 
-- `uniq` (`P1`)  
-  Gap: missing `-i` ignore-case and input/output file modes.  
-  Plan: add case-fold compare and optional output-file operand support.
+- `uniq` (`P2`)  
+  Gap: `-i` and input/output operand support are implemented; remaining gaps are mostly formatting polish.
+  Plan: align count-field formatting and edge-case messaging.
 
-- `cut` (`P1`)  
-  Gap: missing `-c` character mode and `-s` behavior parity.  
-  Plan: add range parser supporting `N`, `N-M`, `-M`, `N-` for both fields/chars.
+- `cut` (`P2`)  
+  Gap: `-c`, `-s`, and range syntax (`N`, `N-M`, `-M`, `N-`) are implemented; remaining gaps are secondary modes.
+  Plan: add byte-list mode (`-b`) and delimiter/output parity refinements.
 
-- `tr` (`P0`)  
-  Gap: missing core options `-d/-s/-c`, range/class expansion, escape handling parity.  
-  Plan: build an internal character-set expander (`a-z`, POSIX classes, escapes) and process modes in order (`delete`, `translate`, `squeeze`).
+- `tr` (`P1`)  
+  Gap: core options `-d/-s/-c`, range expansion, and escape handling are implemented; missing POSIX classes and full complement parity across full Unicode domains.
+  Plan: extend character-set parser for POSIX classes (`[:digit:]`, etc.) and tighten GNU behavior compatibility.
 
 - `awk` (`P0`)  
   Gap: current implementation is intentionally tiny compared with AST-based `just-bash` awk.  
@@ -272,7 +270,7 @@ Source references: `clear`, `date`, `history`, `seq`, `sleep`, `time`, `timeout`
 ## Closure Roadmap (Dependency-Light)
 
 1. `P0` engine gaps: `jq`, `yq`, `xan`, `grep`, `rg`, `awk`, `sed`, `find`, `cp/mv` multi-source, `file`.
-2. `P1` high-utility flags: `sort`, `tr`, `touch`, `tar`, `env`, `date`, `timeout`, `time`.
+2. `P1` high-utility flags: `touch`, `tar`, `env`, `date`, `timeout`, `time`, plus remaining advanced `sort/tr` semantics.
 3. `P2` polish/output parity: formatting consistency, extra flags, minor exit-code edge behavior.
 
 ## Test Expectations Per Gap

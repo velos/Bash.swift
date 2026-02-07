@@ -3,9 +3,7 @@ import Foundation
 
 enum CommandIO {
     static func decodeLines(_ data: Data) -> [String] {
-        String(decoding: data, as: UTF8.self)
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map(String.init)
+        splitLines(String(decoding: data, as: UTF8.self))
     }
 
     static func decodeString(_ data: Data) -> String {
@@ -14,6 +12,17 @@ enum CommandIO {
 
     static func encode(_ string: String) -> Data {
         Data(string.utf8)
+    }
+
+    static func splitLines(_ string: String, dropTrailingTerminator: Bool = true) -> [String] {
+        var lines = string
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+
+        if dropTrailingTerminator, string.hasSuffix("\n"), lines.last == "" {
+            lines.removeLast()
+        }
+        return lines
     }
 }
 

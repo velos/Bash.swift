@@ -194,6 +194,84 @@ struct SessionIntegrationTests {
         #expect(printenvMissing.stdoutString.contains("/home/user\n"))
     }
 
+    @Test("text option parity chunk")
+    func textOptionParityChunk() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        _ = await session.run("printf 'a\\nb\\nc' > one.txt")
+        _ = await session.run("printf 'd\\ne\\nf' > two.txt")
+
+        let headQuiet = await session.run("head -n 1 -q one.txt two.txt")
+        #expect(headQuiet.exitCode == 0)
+        #expect(headQuiet.stdoutString == "a\nd\n")
+
+        let headVerbose = await session.run("head -n 1 -v one.txt")
+        #expect(headVerbose.exitCode == 0)
+        #expect(headVerbose.stdoutString == "==> one.txt <==\na\n")
+
+        let tailFromLine = await session.run("tail -n +2 one.txt")
+        #expect(tailFromLine.exitCode == 0)
+        #expect(tailFromLine.stdoutString == "b\nc\n")
+
+        let wcChars = await session.run("printf 'é\\n' | wc -m")
+        #expect(wcChars.exitCode == 0)
+        #expect(wcChars.stdoutString == "2\n")
+
+        _ = await session.run("printf 'b\\na\\nA' > sort.txt")
+        let sortFold = await session.run("sort -f sort.txt")
+        #expect(sortFold.exitCode == 0)
+        #expect(sortFold.stdoutString == "A\na\nb\n")
+
+        let sortOutput = await session.run("sort -f -o sorted.txt sort.txt")
+        #expect(sortOutput.exitCode == 0)
+        #expect(sortOutput.stdoutString.isEmpty)
+
+        let sortedFile = await session.run("cat sorted.txt")
+        #expect(sortedFile.exitCode == 0)
+        #expect(sortedFile.stdoutString == "A\na\nb\n")
+
+        let sortCheckGood = await session.run("sort -c sorted.txt")
+        #expect(sortCheckGood.exitCode == 0)
+
+        _ = await session.run("printf 'b\\na' > unsorted.txt")
+        let sortCheckBad = await session.run("sort -c unsorted.txt")
+        #expect(sortCheckBad.exitCode == 1)
+        #expect(sortCheckBad.stderrString.contains("not sorted"))
+
+        let uniqIgnoreCase = await session.run("printf 'Foo\\nfoo\\nBar' | uniq -i -c")
+        #expect(uniqIgnoreCase.exitCode == 0)
+        #expect(uniqIgnoreCase.stdoutString == "2 Foo\n1 Bar\n")
+
+        let cutCharacters = await session.run("printf 'abcdef\\nxy' | cut -c 2-3,5-")
+        #expect(cutCharacters.exitCode == 0)
+        #expect(cutCharacters.stdoutString == "bcef\ny\n")
+
+        let cutFieldsDefault = await session.run("printf 'a,b\\nplain' | cut -d , -f 2")
+        #expect(cutFieldsDefault.exitCode == 0)
+        #expect(cutFieldsDefault.stdoutString == "b\nplain\n")
+
+        let cutFieldsSuppress = await session.run("printf 'a,b\\nplain' | cut -s -d , -f 2")
+        #expect(cutFieldsSuppress.exitCode == 0)
+        #expect(cutFieldsSuppress.stdoutString == "b\n")
+
+        let trTranslate = await session.run("printf 'abc\\n' | tr 'a-c' 'x-z'")
+        #expect(trTranslate.exitCode == 0)
+        #expect(trTranslate.stdoutString == "xyz\n")
+
+        let trDelete = await session.run("printf 'aabbcc\\n' | tr -d b")
+        #expect(trDelete.exitCode == 0)
+        #expect(trDelete.stdoutString == "aacc\n")
+
+        let trSqueeze = await session.run("printf 'aaabbbcc\\n' | tr -s ab")
+        #expect(trSqueeze.exitCode == 0)
+        #expect(trSqueeze.stdoutString == "abcc\n")
+
+        let trComplementDelete = await session.run("printf 'abc123\\n' | tr -cd '0-9\\n'")
+        #expect(trComplementDelete.exitCode == 0)
+        #expect(trComplementDelete.stdoutString == "123\n")
+    }
+
     @Test("printf base64 and digest commands")
     func printfBase64AndDigestCommands() async throws {
         let (session, root) = try await TestSupport.makeSession()
