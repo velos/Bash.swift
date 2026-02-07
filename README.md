@@ -216,12 +216,14 @@ All implemented commands support `--help`.
 | `chmod` | `<mode> <paths...>`, `-R`, `--recursive` (octal mode only) |
 | `file` | positional paths |
 | `tree` | optional path, `-a`, `-L <level>` |
+| `diff` | `<left> <right>` |
 
 ### Text Processing
 
 | Command | Supported Options |
 | --- | --- |
 | `grep` | `-i`, `-v`, `-n` (`egrep`, `fgrep` aliases) |
+| `rg` | `-i`, `-n`, `-l`; `<pattern> [paths...]` |
 | `head` | `-n`, `--n` |
 | `tail` | `-n`, `--n` |
 | `wc` | `-l`, `-w`, `-c` |
@@ -229,6 +231,8 @@ All implemented commands support `--help`.
 | `uniq` | `-c` |
 | `cut` | `-d <delimiter>`, `-f <fields>` |
 | `tr` | positional source/destination char sets |
+| `awk` | `-F <separator>`; supports `{print}`, `{print $N}`, `/regex/ {print ...}` |
+| `sed` | substitution scripts only: `s/pattern/replacement/` and `s/.../.../g` |
 | `printf` | format string + positional values (`%s`, `%d`, `%i`, `%f`, `%%`) |
 | `base64` | encode by default; `-d`, `--decode` |
 | `sha256sum` | optional files (or stdin) |
@@ -287,13 +291,13 @@ The project currently includes parser, filesystem, integration, and command cove
 ## Roadmap
 
 ### Priority (next)
-1. `diff`
-2. `rg`
-3. `awk`
-4. `sed`
+1. `gzip`, `gunzip`, `zcat`, `tar`
+2. `jq`, `yq`, `xan`
+3. `curl`
+4. `xargs`
 
 ### Deferred for later milestones
 - `jq`, `yq`, `xan`, `sqlite3`, `python`, `python3`
 - `gzip`, `gunzip`, `zcat`, `tar`
 - `curl`, `html-to-markdown`
-- `awk`, `sed`, `xargs`
+- `xargs`

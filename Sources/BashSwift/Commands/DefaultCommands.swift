@@ -719,6 +719,82 @@ struct TreeCommand: BuiltinCommand {
     }
 }
 
+struct DiffCommand: BuiltinCommand {
+    struct Options: ParsableArguments {
+        @Argument(help: "Two files to compare")
+        var files: [String] = []
+    }
+
+    static let name = "diff"
+    static let overview = "Compare files line by line"
+
+    static func run(context: inout CommandContext, options: Options) async -> Int32 {
+        guard options.files.count == 2 else {
+            context.writeStderr("diff: expected exactly two file operands\n")
+            return 2
+        }
+
+        let leftName = options.files[0]
+        let rightName = options.files[1]
+
+        let leftData: Data
+        let rightData: Data
+
+        do {
+            leftData = try await context.filesystem.readFile(path: context.resolvePath(leftName))
+        } catch {
+            context.writeStderr("diff: \(leftName): \(error)\n")
+            return 2
+        }
+
+        do {
+            rightData = try await context.filesystem.readFile(path: context.resolvePath(rightName))
+        } catch {
+            context.writeStderr("diff: \(rightName): \(error)\n")
+            return 2
+        }
+
+        let leftLines = normalizedLines(from: CommandIO.decodeString(leftData))
+        let rightLines = normalizedLines(from: CommandIO.decodeString(rightData))
+
+        if leftLines == rightLines {
+            return 0
+        }
+
+        context.writeStdout("--- \(leftName)\n")
+        context.writeStdout("+++ \(rightName)\n")
+
+        let maxCount = max(leftLines.count, rightLines.count)
+        for index in 0..<maxCount {
+            let left = index < leftLines.count ? leftLines[index] : nil
+            let right = index < rightLines.count ? rightLines[index] : nil
+            guard left != right else {
+                continue
+            }
+
+            if let left {
+                context.writeStdout("-\(left)\n")
+            }
+            if let right {
+                context.writeStdout("+\(right)\n")
+            }
+        }
+
+        return 1
+    }
+
+    private static func normalizedLines(from string: String) -> [String] {
+        if string.isEmpty {
+            return []
+        }
+        var lines = string.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        if string.hasSuffix("\n"), lines.last == "" {
+            lines.removeLast()
+        }
+        return lines
+    }
+}
+
 struct GrepCommand: BuiltinCommand {
     struct Options: ParsableArguments {
         @Flag(name: .short, help: "Ignore case distinctions")
@@ -775,6 +851,131 @@ struct GrepCommand: BuiltinCommand {
         }
 
         return foundMatch ? 0 : 1
+    }
+}
+
+struct RgCommand: BuiltinCommand {
+    struct Options: ParsableArguments {
+        @Flag(name: .short, help: "Ignore case distinctions")
+        var i = false
+
+        @Flag(name: .short, help: "Prefix each line with line number")
+        var n = false
+
+        @Flag(name: .short, help: "Show only paths with matching lines")
+        var l = false
+
+        @Argument(help: "Pattern and optional paths")
+        var values: [String] = []
+    }
+
+    static let name = "rg"
+    static let overview = "Search recursively for a regex pattern"
+
+    static func run(context: inout CommandContext, options: Options) async -> Int32 {
+        guard let pattern = options.values.first else {
+            context.writeStderr("rg: missing pattern\n")
+            return 2
+        }
+
+        let regexOptions: NSRegularExpression.Options = options.i ? [.caseInsensitive] : []
+        let regex: NSRegularExpression
+        do {
+            regex = try NSRegularExpression(pattern: pattern, options: regexOptions)
+        } catch {
+            context.writeStderr("rg: invalid regex: \(pattern)\n")
+            return 2
+        }
+
+        let roots = options.values.count > 1 ? Array(options.values.dropFirst()) : ["."]
+        var foundMatch = false
+        var hadError = false
+
+        for root in roots {
+            let resolvedRoot = context.resolvePath(root)
+            do {
+                let info = try await context.filesystem.stat(path: resolvedRoot)
+                if info.isDirectory {
+                    let entries = try await CommandFS.walk(path: resolvedRoot, filesystem: context.filesystem)
+                    for entry in entries {
+                        let entryInfo: FileInfo
+                        do {
+                            entryInfo = try await context.filesystem.stat(path: entry)
+                        } catch {
+                            hadError = true
+                            continue
+                        }
+                        guard !entryInfo.isDirectory else {
+                            continue
+                        }
+
+                        let matched = try await searchFile(
+                            path: entry,
+                            displayPath: entry,
+                            regex: regex,
+                            includeLineNumbers: options.n,
+                            fileNamesOnly: options.l,
+                            context: &context
+                        )
+                        foundMatch = foundMatch || matched
+                    }
+                } else {
+                    let matched = try await searchFile(
+                        path: resolvedRoot,
+                        displayPath: root,
+                        regex: regex,
+                        includeLineNumbers: options.n,
+                        fileNamesOnly: options.l,
+                        context: &context
+                    )
+                    foundMatch = foundMatch || matched
+                }
+            } catch {
+                context.writeStderr("rg: \(root): \(error)\n")
+                hadError = true
+            }
+        }
+
+        if hadError {
+            return 2
+        }
+        return foundMatch ? 0 : 1
+    }
+
+    private static func searchFile(
+        path: String,
+        displayPath: String,
+        regex: NSRegularExpression,
+        includeLineNumbers: Bool,
+        fileNamesOnly: Bool,
+        context: inout CommandContext
+    ) async throws -> Bool {
+        let data = try await context.filesystem.readFile(path: path)
+        let content = CommandIO.decodeString(data)
+        let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
+
+        var matched = false
+        for (index, lineSlice) in lines.enumerated() {
+            let line = String(lineSlice)
+            let range = NSRange(line.startIndex..<line.endIndex, in: line)
+            guard regex.firstMatch(in: line, range: range) != nil else {
+                continue
+            }
+
+            matched = true
+            if fileNamesOnly {
+                context.writeStdout("\(displayPath)\n")
+                break
+            }
+
+            if includeLineNumbers {
+                context.writeStdout("\(displayPath):\(index + 1):\(line)\n")
+            } else {
+                context.writeStdout("\(displayPath):\(line)\n")
+            }
+        }
+
+        return matched
     }
 }
 
@@ -1025,6 +1226,309 @@ struct TrCommand: BuiltinCommand {
 
         context.writeStdout(translated)
         return 0
+    }
+}
+
+struct AwkCommand: BuiltinCommand {
+    struct Options: ParsableArguments {
+        @Option(name: .customShort("F"), help: "Field separator")
+        var fieldSeparator: String?
+
+        @Argument(help: "AWK program")
+        var program: String
+
+        @Argument(help: "Optional files")
+        var files: [String] = []
+    }
+
+    static let name = "awk"
+    static let overview = "Pattern scanning and processing language"
+
+    static func run(context: inout CommandContext, options: Options) async -> Int32 {
+        let parsedProgram: Program
+        do {
+            parsedProgram = try parseProgram(options.program)
+        } catch let error as ShellError {
+            context.writeStderr("awk: \(error)\n")
+            return 2
+        } catch {
+            context.writeStderr("awk: unsupported program\n")
+            return 2
+        }
+
+        let inputs = await CommandFS.readInputs(paths: options.files, context: &context)
+
+        for content in inputs.contents {
+            for line in lines(from: content) {
+                if let pattern = parsedProgram.patternRegex {
+                    let range = NSRange(line.startIndex..<line.endIndex, in: line)
+                    guard pattern.firstMatch(in: line, range: range) != nil else {
+                        continue
+                    }
+                }
+
+                switch parsedProgram.output {
+                case .line:
+                    context.writeStdout("\(line)\n")
+                case let .field(index):
+                    context.writeStdout("\(extractField(index: index, from: line, separator: options.fieldSeparator))\n")
+                }
+            }
+        }
+
+        return inputs.hadError ? 1 : 0
+    }
+
+    private enum Output {
+        case line
+        case field(Int)
+    }
+
+    private struct Program {
+        let patternRegex: NSRegularExpression?
+        let output: Output
+    }
+
+    private static func parseProgram(_ source: String) throws -> Program {
+        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let captures = captures(
+            pattern: #"^\{\s*print(?:\s+\$(\d+))?\s*\}$"#,
+            in: trimmed
+        ) {
+            let output = outputFrom(captures[1])
+            return Program(patternRegex: nil, output: output)
+        }
+
+        if let captures = captures(
+            pattern: #"^/(.*)/\s*\{\s*print(?:\s+\$(\d+))?\s*\}$"#,
+            in: trimmed
+        ) {
+            let regex = try NSRegularExpression(pattern: captures[1])
+            let output = outputFrom(captures[2])
+            return Program(patternRegex: regex, output: output)
+        }
+
+        throw ShellError.unsupported("unsupported program")
+    }
+
+    private static func outputFrom(_ fieldCapture: String) -> Output {
+        guard let number = Int(fieldCapture) else {
+            return .line
+        }
+        return .field(number)
+    }
+
+    private static func captures(pattern: String, in source: String) -> [String]? {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+
+        let range = NSRange(source.startIndex..<source.endIndex, in: source)
+        guard let match = regex.firstMatch(in: source, range: range) else {
+            return nil
+        }
+
+        var output: [String] = []
+        for index in 0..<match.numberOfRanges {
+            let captureRange = match.range(at: index)
+            if captureRange.location == NSNotFound {
+                output.append("")
+                continue
+            }
+            if let swiftRange = Range(captureRange, in: source) {
+                output.append(String(source[swiftRange]))
+            } else {
+                output.append("")
+            }
+        }
+
+        return output
+    }
+
+    private static func lines(from content: String) -> [String] {
+        if content.isEmpty {
+            return []
+        }
+        var lines = content.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        if content.hasSuffix("\n"), lines.last == "" {
+            lines.removeLast()
+        }
+        return lines
+    }
+
+    private static func extractField(index: Int, from line: String, separator: String?) -> String {
+        if index == 0 {
+            return line
+        }
+
+        guard index > 0 else {
+            return ""
+        }
+
+        let fields: [String]
+        if let separator {
+            if separator.isEmpty {
+                fields = line.map(String.init)
+            } else {
+                fields = line.components(separatedBy: separator)
+            }
+        } else {
+            fields = line.split(whereSeparator: \.isWhitespace).map(String.init)
+        }
+
+        guard index <= fields.count else {
+            return ""
+        }
+
+        return fields[index - 1]
+    }
+}
+
+struct SedCommand: BuiltinCommand {
+    struct Options: ParsableArguments {
+        @Argument(help: "Sed script")
+        var script: String
+
+        @Argument(help: "Optional files")
+        var files: [String] = []
+    }
+
+    static let name = "sed"
+    static let overview = "Stream editor"
+
+    static func run(context: inout CommandContext, options: Options) async -> Int32 {
+        let command: Substitution
+        do {
+            command = try parseSubstitution(options.script)
+        } catch let error as ShellError {
+            context.writeStderr("sed: \(error)\n")
+            return 2
+        } catch {
+            context.writeStderr("sed: unsupported script\n")
+            return 2
+        }
+
+        let inputs = await CommandFS.readInputs(paths: options.files, context: &context)
+        for content in inputs.contents {
+            for line in lines(from: content) {
+                let replaced = replace(line: line, using: command)
+                context.writeStdout("\(replaced)\n")
+            }
+        }
+
+        return inputs.hadError ? 1 : 0
+    }
+
+    private struct Substitution {
+        let regex: NSRegularExpression
+        let replacement: String
+        let global: Bool
+    }
+
+    private static func parseSubstitution(_ source: String) throws -> Substitution {
+        let script = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard script.first == "s", script.count >= 2 else {
+            throw ShellError.unsupported("only substitution scripts are supported")
+        }
+
+        let delimiter = script[script.index(after: script.startIndex)]
+        var index = script.index(script.startIndex, offsetBy: 2)
+
+        let pattern = try parseSegment(script, delimiter: delimiter, index: &index)
+        let replacement = try parseSegment(script, delimiter: delimiter, index: &index)
+        let flags = String(script[index...])
+
+        guard flags.isEmpty || flags == "g" else {
+            throw ShellError.unsupported("only the 'g' flag is supported")
+        }
+
+        let regex = try NSRegularExpression(pattern: pattern)
+        return Substitution(regex: regex, replacement: replacement, global: flags == "g")
+    }
+
+    private static func parseSegment(
+        _ script: String,
+        delimiter: Character,
+        index: inout String.Index
+    ) throws -> String {
+        guard index <= script.endIndex else {
+            throw ShellError.unsupported("invalid substitution script")
+        }
+
+        var segment = ""
+        var escaped = false
+        while index < script.endIndex {
+            let character = script[index]
+            index = script.index(after: index)
+
+            if escaped {
+                if character == delimiter || character == "\\" {
+                    segment.append(character)
+                } else {
+                    segment.append("\\")
+                    segment.append(character)
+                }
+                escaped = false
+                continue
+            }
+
+            if character == "\\" {
+                escaped = true
+                continue
+            }
+
+            if character == delimiter {
+                return segment
+            }
+
+            segment.append(character)
+        }
+
+        if escaped {
+            segment.append("\\")
+        }
+
+        throw ShellError.unsupported("invalid substitution script")
+    }
+
+    private static func replace(line: String, using substitution: Substitution) -> String {
+        let fullRange = NSRange(line.startIndex..<line.endIndex, in: line)
+        if substitution.global {
+            return substitution.regex.stringByReplacingMatches(
+                in: line,
+                range: fullRange,
+                withTemplate: substitution.replacement
+            )
+        }
+
+        guard let match = substitution.regex.firstMatch(in: line, range: fullRange) else {
+            return line
+        }
+
+        let prefixRange = NSRange(location: 0, length: match.range.location)
+        let suffixLocation = match.range.location + match.range.length
+        let suffixRange = NSRange(location: suffixLocation, length: max(0, fullRange.length - suffixLocation))
+        let source = line as NSString
+        let replacement = substitution.regex.replacementString(
+            for: match,
+            in: line,
+            offset: 0,
+            template: substitution.replacement
+        )
+
+        return source.substring(with: prefixRange) + replacement + source.substring(with: suffixRange)
+    }
+
+    private static func lines(from content: String) -> [String] {
+        if content.isEmpty {
+            return []
+        }
+        var lines = content.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        if content.hasSuffix("\n"), lines.last == "" {
+            lines.removeLast()
+        }
+        return lines
     }
 }
 
@@ -1893,7 +2397,9 @@ extension BashSession {
             ChmodCommand.self,
             FileCommand.self,
             TreeCommand.self,
+            DiffCommand.self,
             GrepCommand.self,
+            RgCommand.self,
             HeadCommand.self,
             TailCommand.self,
             WcCommand.self,
@@ -1901,6 +2407,8 @@ extension BashSession {
             UniqCommand.self,
             CutCommand.self,
             TrCommand.self,
+            AwkCommand.self,
+            SedCommand.self,
             PrintfCommand.self,
             Base64Command.self,
             Sha256sumCommand.self,

@@ -233,4 +233,59 @@ struct SessionIntegrationTests {
         #expect(timeout.exitCode == 124)
         #expect(timeout.stderrString.contains("timed out"))
     }
+
+    @Test("diff command shows differences and status")
+    func diffCommandShowsDifferencesAndStatus() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        _ = await session.run("printf 'one\\ntwo\\n' > left.txt")
+        _ = await session.run("printf 'one\\nchanged\\n' > right.txt")
+
+        let changed = await session.run("diff left.txt right.txt")
+        #expect(changed.exitCode == 1)
+        #expect(changed.stdoutString.contains("--- left.txt"))
+        #expect(changed.stdoutString.contains("+++ right.txt"))
+        #expect(changed.stdoutString.contains("-two"))
+        #expect(changed.stdoutString.contains("+changed"))
+
+        let same = await session.run("diff left.txt left.txt")
+        #expect(same.exitCode == 0)
+        #expect(same.stdoutString.isEmpty)
+    }
+
+    @Test("rg awk and sed commands")
+    func rgAwkAndSedCommands() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        _ = await session.run("mkdir -p logs")
+        _ = await session.run("printf 'hello\\nworld\\n' > logs/app.txt")
+        _ = await session.run("printf 'nope\\nhello again\\n' > logs/other.txt")
+
+        let rg = await session.run("rg hello logs")
+        #expect(rg.exitCode == 0)
+        #expect(rg.stdoutString.contains("/home/user/logs/app.txt:hello"))
+        #expect(rg.stdoutString.contains("/home/user/logs/other.txt:hello again"))
+
+        let rgLineNumbers = await session.run("rg -n hello logs/app.txt")
+        #expect(rgLineNumbers.exitCode == 0)
+        #expect(rgLineNumbers.stdoutString == "logs/app.txt:1:hello\n")
+
+        let awk = await session.run("printf 'a b\\nc d\\n' | awk '{print $2}'")
+        #expect(awk.exitCode == 0)
+        #expect(awk.stdoutString == "b\nd\n")
+
+        let awkFiltered = await session.run("printf 'a b\\nc d\\n' | awk '/c/ {print $1}'")
+        #expect(awkFiltered.exitCode == 0)
+        #expect(awkFiltered.stdoutString == "c\n")
+
+        let sedSingle = await session.run("printf 'foo foo\\n' | sed 's/foo/bar/'")
+        #expect(sedSingle.exitCode == 0)
+        #expect(sedSingle.stdoutString == "bar foo\n")
+
+        let sedGlobal = await session.run("printf 'foo foo\\n' | sed 's/foo/bar/g'")
+        #expect(sedGlobal.exitCode == 0)
+        #expect(sedGlobal.stdoutString == "bar bar\n")
+    }
 }
