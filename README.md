@@ -94,11 +94,15 @@ public struct SessionOptions {
 ```
 
 Defaults:
-- `filesystem`: `RealFilesystem()`
+- `filesystem`: `ReadWriteFilesystem()`
 - `layout`: `.unixLike`
 - `initialEnvironment`: `[:]`
 - `enableGlobbing`: `true`
 - `maxHistory`: `1000`
+
+Available filesystem implementations:
+- `ReadWriteFilesystem`: root-jail wrapper over real disk I/O.
+- `InMemoryFilesystem`: fully in-memory filesystem with no disk writes.
 
 ### `SessionLayout`
 
@@ -133,10 +137,21 @@ Execution pipeline:
 
 ## Filesystem Model
 
-`RealFilesystem` is rooted at your provided `rootDirectory` and enforces path jail behavior:
-- All operations are scoped under the root
-- Symlink escapes outside root are blocked
-- Built-in command stubs are created under `/bin` and `/usr/bin` for command lookup behavior
+Built-in filesystem options:
+- `ReadWriteFilesystem` (default): rooted at your `rootDirectory`; reads/writes hit disk in that sandboxed root.
+- `InMemoryFilesystem`: virtual tree stored in memory; no file mutations are written to disk.
+
+Behavior guarantees:
+- All operations are scoped under the filesystem root.
+- For `ReadWriteFilesystem`, symlink escapes outside root are blocked.
+- Built-in command stubs are created under `/bin` and `/usr/bin` inside the selected filesystem.
+
+Example:
+
+```swift
+let inMemory = SessionOptions(filesystem: InMemoryFilesystem())
+let session = try await BashSession(rootDirectory: URL(fileURLWithPath: "/tmp/ignored"), options: inMemory)
+```
 
 You can provide a custom filesystem by implementing `ShellFilesystem`.
 

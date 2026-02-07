@@ -33,7 +33,7 @@ public struct SessionOptions: Sendable {
     public var maxHistory: Int
 
     public init(
-        filesystem: any ShellFilesystem = RealFilesystem(),
+        filesystem: any ShellFilesystem = ReadWriteFilesystem(),
         layout: SessionLayout = .unixLike,
         initialEnvironment: [String: String] = [:],
         enableGlobbing: Bool = true,

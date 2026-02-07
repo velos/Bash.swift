@@ -103,4 +103,34 @@ struct ParserAndFilesystemTests {
         let byPath = await session.run("/bin/ls")
         #expect(byPath.exitCode == 0)
     }
+
+    @Test("in-memory filesystem keeps writes off disk")
+    func inMemoryFilesystemKeepsWritesOffDisk() async throws {
+        let root = try TestSupport.makeTempDirectory(prefix: "BashSwiftInMemory")
+        defer { TestSupport.removeDirectory(root) }
+
+        let session = try await BashSession(
+            rootDirectory: root,
+            options: SessionOptions(
+                filesystem: InMemoryFilesystem(),
+                layout: .unixLike,
+                initialEnvironment: [:],
+                enableGlobbing: true,
+                maxHistory: 1_000
+            )
+        )
+
+        let touch = await session.run("touch mem.txt")
+        #expect(touch.exitCode == 0)
+
+        let ls = await session.run("ls")
+        #expect(ls.exitCode == 0)
+        #expect(ls.stdoutString.contains("mem.txt"))
+
+        let physicalPath = root
+            .appendingPathComponent("home/user", isDirectory: true)
+            .appendingPathComponent("mem.txt")
+            .path
+        #expect(FileManager.default.fileExists(atPath: physicalPath) == false)
+    }
 }

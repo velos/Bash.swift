@@ -1,6 +1,6 @@
 import Foundation
 
-public final class RealFilesystem: ShellFilesystem, @unchecked Sendable {
+public final class ReadWriteFilesystem: ShellFilesystem, @unchecked Sendable {
     private let fileManager: FileManager
     private var rootURL: URL?
     private var resolvedRootPath: String?

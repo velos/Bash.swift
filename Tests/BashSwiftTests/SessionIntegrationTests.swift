@@ -4,8 +4,8 @@ import Testing
 
 @Suite("Session Integration")
 struct SessionIntegrationTests {
-    @Test("touch then ls mutates filesystem")
-    func touchThenLsShowsFileAndMutatesRealFilesystem() async throws {
+    @Test("touch then ls mutates read-write filesystem")
+    func touchThenLsShowsFileAndMutatesReadWriteFilesystem() async throws {
         let (session, root) = try await TestSupport.makeSession()
         defer { TestSupport.removeDirectory(root) }
 

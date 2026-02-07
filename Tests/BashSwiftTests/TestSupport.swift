@@ -10,12 +10,13 @@ enum TestSupport {
     }
 
     static func makeSession(
+        filesystem: (any ShellFilesystem)? = nil,
         layout: SessionLayout = .unixLike,
         enableGlobbing: Bool = true
     ) async throws -> (session: BashSession, root: URL) {
         let root = try makeTempDirectory()
         let options = SessionOptions(
-            filesystem: RealFilesystem(),
+            filesystem: filesystem ?? ReadWriteFilesystem(),
             layout: layout,
             initialEnvironment: [:],
             enableGlobbing: enableGlobbing,
