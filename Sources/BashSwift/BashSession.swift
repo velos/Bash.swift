@@ -18,35 +18,19 @@ public final actor BashSession {
     }
 
     public init(rootDirectory: URL, options: SessionOptions = .init()) async throws {
-        self.options = options
-
         let filesystem = options.filesystem
         try filesystem.configure(rootDirectory: rootDirectory)
-        filesystemStore = filesystem
+        try await self.init(options: options, configuredFilesystem: filesystem)
+    }
 
-        commandRegistry = [:]
-        historyStore = []
-
-        switch options.layout {
-        case .unixLike:
-            currentDirectoryStore = "/home/user"
-        case .rootOnly:
-            currentDirectoryStore = "/"
+    public init(options: SessionOptions = .init()) async throws {
+        let filesystem = options.filesystem
+        guard let configurable = filesystem as? any SessionConfigurableFilesystem else {
+            throw ShellError.unsupported("filesystem requires rootDirectory initializer")
         }
 
-        var defaults: [String: String] = [
-            "HOME": "/home/user",
-            "PWD": currentDirectoryStore,
-            "PATH": "/bin:/usr/bin",
-            "USER": "user",
-            "TMPDIR": "/tmp",
-        ]
-
-        defaults.merge(options.initialEnvironment) { _, rhs in rhs }
-        environmentStore = defaults
-
-        try await setupLayout()
-        await registerDefaultCommands()
+        try configurable.configureForSession()
+        try await self.init(options: options, configuredFilesystem: filesystem)
     }
 
     public func run(_ commandLine: String, stdin: Data = Data()) async -> CommandResult {
@@ -116,7 +100,9 @@ public final actor BashSession {
     private func setupLayout() async throws {
         switch options.layout {
         case .rootOnly:
-            try await filesystemStore.createDirectory(path: "/", recursive: true)
+            // Backends are configured with a root by construction. Creating "/"
+            // can resolve to the parent of the jailed root for some adapters.
+            break
         case .unixLike:
             for path in ["/home/user", "/bin", "/usr/bin", "/tmp"] {
                 try await filesystemStore.createDirectory(path: path, recursive: true)
@@ -141,6 +127,57 @@ public final actor BashSession {
                 // Best effort for command lookup stubs.
             }
         }
+    }
+
+    private init(options: SessionOptions, configuredFilesystem: any ShellFilesystem) async throws {
+        self.options = options
+        filesystemStore = configuredFilesystem
+
+        commandRegistry = [:]
+        historyStore = []
+        currentDirectoryStore = Self.initialCurrentDirectory(for: options.layout)
+        environmentStore = Self.defaultEnvironment(
+            for: options.layout,
+            currentDirectory: currentDirectoryStore,
+            initialEnvironment: options.initialEnvironment
+        )
+
+        try await setupLayout()
+        await registerDefaultCommands()
+    }
+
+    private static func initialCurrentDirectory(for layout: SessionLayout) -> String {
+        switch layout {
+        case .unixLike:
+            return "/home/user"
+        case .rootOnly:
+            return "/"
+        }
+    }
+
+    private static func defaultEnvironment(
+        for layout: SessionLayout,
+        currentDirectory: String,
+        initialEnvironment: [String: String]
+    ) -> [String: String] {
+        let home: String
+        switch layout {
+        case .unixLike:
+            home = "/home/user"
+        case .rootOnly:
+            home = "/"
+        }
+
+        var defaults: [String: String] = [
+            "HOME": home,
+            "PWD": currentDirectory,
+            "PATH": "/bin:/usr/bin",
+            "USER": "user",
+            "TMPDIR": "/tmp",
+        ]
+
+        defaults.merge(initialEnvironment) { _, rhs in rhs }
+        return defaults
     }
 
 }

@@ -1,6 +1,6 @@
 import Foundation
 
-public final class InMemoryFilesystem: ShellFilesystem, @unchecked Sendable {
+public final class InMemoryFilesystem: SessionConfigurableFilesystem, @unchecked Sendable {
     private final class Node {
         enum Kind {
             case file(Data)
@@ -68,6 +68,14 @@ public final class InMemoryFilesystem: ShellFilesystem, @unchecked Sendable {
 
     public func configure(rootDirectory: URL) throws {
         _ = rootDirectory
+        reset()
+    }
+
+    public func configureForSession() throws {
+        reset()
+    }
+
+    private func reset() {
         root = Node(kind: .directory([:]), permissions: 0o755)
     }
 

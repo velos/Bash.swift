@@ -61,6 +61,7 @@ print(piped.exitCode) // 0
 ```swift
 public final actor BashSession {
     public init(rootDirectory: URL, options: SessionOptions = .init()) async throws
+    public init(options: SessionOptions = .init()) async throws
     public func run(_ commandLine: String, stdin: Data = Data()) async -> CommandResult
     public func register(_ command: any BuiltinCommand.Type) async
     public var currentDirectory: String { get async }
@@ -103,6 +104,8 @@ Defaults:
 Available filesystem implementations:
 - `ReadWriteFilesystem`: root-jail wrapper over real disk I/O.
 - `InMemoryFilesystem`: fully in-memory filesystem with no disk writes.
+- `SandboxFilesystem`: resolves app container-style roots (`documents`, `caches`, `temporary`, app group, custom URL).
+- `SecurityScopedFilesystem`: URL/bookmark-backed filesystem for security-scoped access.
 
 ### `SessionLayout`
 
@@ -140,20 +143,56 @@ Execution pipeline:
 Built-in filesystem options:
 - `ReadWriteFilesystem` (default): rooted at your `rootDirectory`; reads/writes hit disk in that sandboxed root.
 - `InMemoryFilesystem`: virtual tree stored in memory; no file mutations are written to disk.
+- `SandboxFilesystem`: root resolved from container locations, then backed by `ReadWriteFilesystem`.
+- `SecurityScopedFilesystem`: root resolved from security-scoped URL or bookmark, then backed by `ReadWriteFilesystem`.
 
 Behavior guarantees:
 - All operations are scoped under the filesystem root.
 - For `ReadWriteFilesystem`, symlink escapes outside root are blocked.
 - Built-in command stubs are created under `/bin` and `/usr/bin` inside the selected filesystem.
+- Unsupported platform features are surfaced as runtime `ShellError.unsupported(...)`, while all current package targets still compile.
 
-Example:
+Rootless session init example:
 
 ```swift
 let inMemory = SessionOptions(filesystem: InMemoryFilesystem())
-let session = try await BashSession(rootDirectory: URL(fileURLWithPath: "/tmp/ignored"), options: inMemory)
+let session = try await BashSession(options: inMemory)
 ```
 
+`BashSession.init(options:)` works with filesystems that can self-configure for a session (`SessionConfigurableFilesystem`), such as `InMemoryFilesystem`, `SandboxFilesystem`, and `SecurityScopedFilesystem`.
+
 You can provide a custom filesystem by implementing `ShellFilesystem`.
+
+### Filesystem Platform Matrix
+
+| Filesystem | macOS | iOS | Catalyst | tvOS/watchOS |
+| --- | --- | --- | --- | --- |
+| `ReadWriteFilesystem` | supported | supported | supported | supported |
+| `InMemoryFilesystem` | supported | supported | supported | supported |
+| `SandboxFilesystem` | supported (where root resolves) | supported (where root resolves) | supported (where root resolves) | supported (where root resolves) |
+| `SecurityScopedFilesystem` | supported | supported | supported | compiles; throws `ShellError.unsupported` when configured |
+
+### Security-Scoped Bookmark Flow
+
+```swift
+let store = UserDefaultsBookmarkStore()
+
+// Create from a URL chosen by your app's document flow.
+let fs = try SecurityScopedFilesystem(url: pickedURL, mode: .readWrite)
+try fs.configureForSession()
+try await fs.saveBookmark(id: "workspace", store: store)
+
+// Restore on a later app launch.
+let restored = try await SecurityScopedFilesystem.loadBookmark(
+    id: "workspace",
+    store: store,
+    mode: .readWrite
+)
+
+let session = try await BashSession(
+    options: SessionOptions(filesystem: restored, layout: .rootOnly)
+)
+```
 
 ## Implemented Commands
 
