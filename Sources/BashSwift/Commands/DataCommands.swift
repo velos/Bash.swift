@@ -9,6 +9,21 @@ struct JqCommand: BuiltinCommand {
         @Flag(name: [.short, .customLong("compact-output")], help: "Compact JSON output")
         var c = false
 
+        @Flag(name: .short, help: "Set exit status based on output")
+        var e = false
+
+        @Flag(name: [.short, .customLong("slurp")], help: "Read all input values into an array")
+        var s = false
+
+        @Flag(name: [.short, .customLong("null-input")], help: "Do not read input")
+        var n = false
+
+        @Flag(name: [.short, .customLong("join-output")], help: "Suppress newline between outputs")
+        var j = false
+
+        @Flag(name: [.short, .customLong("sort-keys")], help: "Sort object keys in output")
+        var S = false
+
         @Argument(help: "Query expression")
         var query: String
 
@@ -26,8 +41,15 @@ struct JqCommand: BuiltinCommand {
             query: options.query,
             files: options.files,
             parseDocument: StructuredDataParsers.parseJSONDocument,
-            rawOutput: options.r,
-            compactOutput: options.c
+            options: StructuredDataQueryRunner.Options(
+                rawOutput: options.r,
+                compactOutput: options.c,
+                sortKeys: options.S,
+                joinOutput: options.j,
+                exitStatus: options.e,
+                slurp: options.s,
+                nullInput: options.n
+            )
         )
     }
 }
@@ -39,6 +61,21 @@ struct YqCommand: BuiltinCommand {
 
         @Flag(name: [.short, .customLong("compact-output")], help: "Compact JSON output")
         var c = false
+
+        @Flag(name: .short, help: "Set exit status based on output")
+        var e = false
+
+        @Flag(name: [.short, .customLong("slurp")], help: "Read all input values into an array")
+        var s = false
+
+        @Flag(name: [.short, .customLong("null-input")], help: "Do not read input")
+        var n = false
+
+        @Flag(name: [.short, .customLong("join-output")], help: "Suppress newline between outputs")
+        var j = false
+
+        @Flag(name: [.short, .customLong("sort-keys")], help: "Sort object keys in output")
+        var S = false
 
         @Argument(help: "Query expression")
         var query: String
@@ -57,8 +94,15 @@ struct YqCommand: BuiltinCommand {
             query: options.query,
             files: options.files,
             parseDocument: StructuredDataParsers.parseYQDocument,
-            rawOutput: options.r,
-            compactOutput: options.c
+            options: StructuredDataQueryRunner.Options(
+                rawOutput: options.r,
+                compactOutput: options.c,
+                sortKeys: options.S,
+                joinOutput: options.j,
+                exitStatus: options.e,
+                slurp: options.s,
+                nullInput: options.n
+            )
         )
     }
 }
@@ -256,38 +300,77 @@ struct XanCommand: BuiltinCommand {
 private enum StructuredDataQueryRunner {
     typealias DocumentParser = (String) throws -> Any
 
+    struct Options {
+        let rawOutput: Bool
+        let compactOutput: Bool
+        let sortKeys: Bool
+        let joinOutput: Bool
+        let exitStatus: Bool
+        let slurp: Bool
+        let nullInput: Bool
+    }
+
     static func run(
         context: inout CommandContext,
         commandName: String,
         query: String,
         files: [String],
         parseDocument: DocumentParser,
-        rawOutput: Bool,
-        compactOutput: Bool
+        options: Options
     ) async -> Int32 {
-        let steps: [StructuredDataQuery.Step]
+        let program: StructuredQueryProgram
         do {
-            steps = try StructuredDataQuery.parse(query)
+            program = try StructuredQueryProgram.parse(query)
         } catch {
             context.writeStderr("\(commandName): \(error)\n")
             return 2
         }
 
-        let inputs = await CommandFS.readInputs(paths: files, context: &context)
+        var inputs: [String] = []
+        var hadIOError = false
+        if !options.nullInput {
+            let read = await CommandFS.readInputs(paths: files, context: &context)
+            inputs = read.contents
+            hadIOError = read.hadError
+        }
+
+        var documents: [Any] = []
         var hadRuntimeError = false
 
-        for content in inputs.contents {
+        for content in inputs {
             do {
-                let document = try parseDocument(content)
-                let values = StructuredDataQuery.evaluate(document, steps: steps)
+                documents.append(try parseDocument(content))
+            } catch {
+                context.writeStderr("\(commandName): \(error)\n")
+                hadRuntimeError = true
+            }
+        }
+
+        if options.nullInput {
+            documents = [NSNull()]
+        } else if options.slurp {
+            documents = [documents]
+        }
+
+        var lastOutput: Any = NSNull()
+        var emittedValues = 0
+        let renderOptions = StructuredQueryRenderOptions(
+            rawOutput: options.rawOutput,
+            compactOutput: options.compactOutput,
+            sortKeys: options.sortKeys
+        )
+
+        for document in documents {
+            do {
+                let values = try program.evaluate(input: document)
                 for value in values {
-                    let rendered = try StructuredDataRender.render(
-                        value,
-                        rawStrings: rawOutput,
-                        compactJSON: compactOutput
-                    )
+                    let rendered = try StructuredQueryRenderer.render(value, options: renderOptions)
                     context.writeStdout(rendered)
-                    context.writeStdout("\n")
+                    if !options.joinOutput {
+                        context.writeStdout("\n")
+                    }
+                    lastOutput = value
+                    emittedValues += 1
                 }
             } catch {
                 context.writeStderr("\(commandName): \(error)\n")
@@ -295,11 +378,29 @@ private enum StructuredDataQueryRunner {
             }
         }
 
-        if inputs.hadError || hadRuntimeError {
+        if hadIOError || hadRuntimeError {
             return 1
         }
+
+        if options.exitStatus {
+            if emittedValues == 0 {
+                return 4
+            }
+            return structuredQueryIsTruthy(lastOutput) ? 0 : 1
+        }
+
         return 0
     }
+}
+
+private func structuredQueryIsTruthy(_ value: Any) -> Bool {
+    if (value as? NSNull) != nil {
+        return false
+    }
+    if let boolean = value as? Bool {
+        return boolean
+    }
+    return true
 }
 
 private enum StructuredDataParsers {

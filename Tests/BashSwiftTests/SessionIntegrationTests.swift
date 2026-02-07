@@ -618,4 +618,54 @@ struct SessionIntegrationTests {
         #expect(xanFilter.exitCode == 0)
         #expect(xanFilter.stdoutString == "name,age,city\nbob,25,SF\n")
     }
+
+    @Test("jq and yq query engine phase 1")
+    func jqAndYqQueryEnginePhase1() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let jqSelect = await session.run("printf '[{\"n\":1},{\"n\":3}]' | jq '.[] | select(.n > 1) | .n'")
+        #expect(jqSelect.exitCode == 0)
+        #expect(jqSelect.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines) == "3")
+
+        let jqCoalesce = await session.run("printf '{}' | jq '.missing // \"fallback\"'")
+        #expect(jqCoalesce.exitCode == 0)
+        #expect(jqCoalesce.stdoutString.contains("\"fallback\""))
+
+        let jqBool = await session.run("printf '{\"a\":true,\"b\":false}' | jq '.a and .b'")
+        #expect(jqBool.exitCode == 0)
+        #expect(jqBool.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines) == "false")
+
+        let jqNullInput = await session.run("jq -n '1 == 1'")
+        #expect(jqNullInput.exitCode == 0)
+        #expect(jqNullInput.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines) == "true")
+
+        let jqJoin = await session.run("printf '[1,2]' | jq -j '.[]'")
+        #expect(jqJoin.exitCode == 0)
+        #expect(jqJoin.stdoutString == "12")
+
+        _ = await session.run("printf '{\"b\":1,\"a\":2}' > obj.json")
+        let jqSorted = await session.run("jq -c -S '.' obj.json")
+        #expect(jqSorted.exitCode == 0)
+        #expect(jqSorted.stdoutString == "{\"a\":2,\"b\":1}\n")
+
+        _ = await session.run("printf '{\"id\":1}' > one.json")
+        _ = await session.run("printf '{\"id\":2}' > two.json")
+        let jqSlurp = await session.run("jq -s '.[] | .id' one.json two.json")
+        #expect(jqSlurp.exitCode == 0)
+        #expect(jqSlurp.stdoutString == "1\n2\n")
+
+        let jqExitFalse = await session.run("jq -e -n 'false'")
+        #expect(jqExitFalse.exitCode == 1)
+
+        let jqExitNoOutput = await session.run("printf '[1]' | jq -e '.[] | select(. > 3)'")
+        #expect(jqExitNoOutput.exitCode == 4)
+
+        let yqSelect = await session.run("printf 'items:\\n  - n: 1\\n  - n: 3\\n' | yq '.items[] | select(.n >= 2) | .n'")
+        #expect(yqSelect.exitCode == 0)
+        #expect(yqSelect.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines) == "3")
+
+        let yqExit = await session.run("yq -e -n 'null'")
+        #expect(yqExit.exitCode == 1)
+    }
 }

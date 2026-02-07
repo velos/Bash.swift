@@ -248,8 +248,8 @@ All implemented commands support `--help`.
 
 | Command | Supported Options |
 | --- | --- |
-| `jq` | `-r`, `-c`; query + optional files |
-| `yq` | `-r`, `-c`; query + optional files (YAML + JSON input) |
+| `jq` | `-r`, `-c`, `-e`, `-s`, `-n`, `-j`, `-S`; query + optional files. Query subset supports paths, `|`, `select(...)`, comparisons, `and`/`or`/`not`, `//` |
+| `yq` | `-r`, `-c`, `-e`, `-s`, `-n`, `-j`, `-S`; query + optional files (YAML + JSON input), same query subset as `jq` |
 | `xan` | subcommands: `count`, `headers`, `select`, `filter` |
 
 ### Compression & Archives

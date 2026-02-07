@@ -141,13 +141,13 @@ Source references: `grep`, `rg`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, `t
 
 Source references: `jq`, `yq`, `xan`, plus `just-bash-main/src/commands/query-engine/**`.
 
-- `jq` (`P0`)  
-  Gap: current query parser only supports dot/bracket traversal and iteration; no operators/functions/pipelines/filters/assignments; missing `-e/-s/-n/-j/-S/--tab`.  
-  Plan: replace `StructuredDataQuery` with a real expression parser (Pratt parser) + evaluator over JSON values; implement option flags in phases.
+- `jq` (`P1`)  
+  Gap: phase-1 parser/evaluator landed with paths, pipes, `select(...)`, comparisons, boolean operators, and `//`, plus flags `-e/-s/-n/-j/-S`. Remaining gaps are advanced jq semantics (functions/assignments/reduce, richer operators, stream semantics, `--tab` formatting parity).  
+  Plan: add function/value pipeline primitives (`map`, `length`, `keys`, `add`) and tighten stream semantics incrementally.
 
-- `yq` (`P0`)  
-  Gap: currently YAML+JSON only and shares limited jq subset; missing format matrix (XML/INI/CSV/TOML), conversion flags, slurp/null-input/in-place/front-matter.  
-  Plan: keep jq parser shared, then add format adapters one-by-one with internal parsers/writers (start JSON+YAML hardening, then TOML/INI, then XML/CSV).
+- `yq` (`P1`)  
+  Gap: now shares the same phase-1 jq subset and flags (`-e/-s/-n/-j/-S`) for YAML+JSON. Remaining gaps are format matrix expansion (XML/INI/CSV/TOML) and yq-specific conversion/editing features (in-place/front-matter/input-output format controls).  
+  Plan: keep shared query engine and add format adapters one-by-one with internal parsers/writers.
 
 - `xan` (`P0`)  
   Gap: only `count/headers/select/filter` with simple selection; missing broad subcommand surface and expression language.  
@@ -269,7 +269,7 @@ Source references: `clear`, `date`, `history`, `seq`, `sleep`, `time`, `timeout`
 
 ## Closure Roadmap (Dependency-Light)
 
-1. `P0` engine gaps: `jq`, `yq`, `xan`, `awk`, `sed`, `find`, `cp/mv` multi-source, `file`.
+1. `P0` engine gaps: `xan`, `awk`, `sed`, `find`, `cp/mv` multi-source, `file`.
 2. `P1` high-utility flags: `touch`, `tar`, `env`, `date`, `timeout`, `time`, plus remaining advanced `sort/tr` semantics and `grep/rg` output-mode parity.
 3. `P2` polish/output parity: formatting consistency, extra flags, minor exit-code edge behavior.
 
