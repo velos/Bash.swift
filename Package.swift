@@ -23,11 +23,20 @@ let package = Package(
             name: "BashPython",
             targets: ["BashPython"]
         ),
+        .library(
+            name: "BashGit",
+            targets: ["BashGit"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
     ],
     targets: [
+        .binaryTarget(
+            name: "Clibgit2",
+            url: "https://github.com/flaboy/static-libgit2/releases/download/1.8.5/Clibgit2.xcframework.zip",
+            checksum: "f62a6760f8c2ff1a82e4fb80c69fe2aa068458c7619f5b98c53c71579f72f9c7"
+        ),
         .target(
             name: "BashSwift",
             dependencies: [
@@ -54,6 +63,17 @@ let package = Package(
                 .process("Resources")
             ]
         ),
+        .target(
+            name: "BashGit",
+            dependencies: [
+                "BashSwift",
+                "Clibgit2",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            linkerSettings: [
+                .linkedLibrary("iconv")
+            ]
+        ),
         .testTarget(
             name: "BashSwiftTests",
             dependencies: ["BashSwift"]
@@ -70,6 +90,13 @@ let package = Package(
             dependencies: [
                 "BashSwift",
                 "BashPython",
+            ]
+        ),
+        .testTarget(
+            name: "BashGitTests",
+            dependencies: [
+                "BashSwift",
+                "BashGit",
             ]
         ),
     ]

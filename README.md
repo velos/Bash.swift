@@ -24,12 +24,12 @@ You create a `BashSession`, run shell command strings, and get structured `stdou
 .targets: [
     .target(
         name: "YourTarget",
-        dependencies: ["BashSwift", "BashSQLite", "BashPython"]
+        dependencies: ["BashSwift", "BashSQLite", "BashPython", "BashGit"]
     )
 ]
 ```
 
-`BashSQLite` and `BashPython` are optional. If you only need the core shell, depend on `BashSwift` alone.
+`BashSQLite`, `BashPython`, and `BashGit` are optional. If you only need the core shell, depend on `BashSwift` alone.
 
 ## Platform Support
 
@@ -78,7 +78,21 @@ let py = await session.run("python3 -c \"print('hi')\"")
 print(py.stdoutString) // hi
 ```
 
-`PyodideRuntime` needs access to a Pyodide distribution (default points at jsDelivr). You can provide custom/local loader and index URLs via `PyodideConfiguration`.
+`PyodideRuntime` needs access to a Pyodide distribution. Default config uses bundled `pyodide.js`; you can provide custom loader/index URLs via `PyodideConfiguration`.
+
+Optional `git` registration:
+
+```swift
+import BashGit
+
+await session.registerGit()
+_ = await session.run("git init")
+_ = await session.run("git add -A")
+let commit = await session.run("git commit -m \"Initial commit\"")
+print(commit.exitCode)
+```
+
+`BashGit` uses a prebuilt `Clibgit2.xcframework` binary target (iOS, iOS Simulator, macOS, Catalyst). The binary artifact is fetched by SwiftPM during dependency resolution.
 
 ## Public API
 

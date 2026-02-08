@@ -15,7 +15,7 @@ Key properties:
 ## Tech + Platform Baseline
 
 - Swift tools: `6.2`
-- Package: SwiftPM library products `BashSwift`, `BashSQLite` (optional), `BashPython` (optional)
+- Package: SwiftPM library products `BashSwift`, `BashSQLite` (optional), `BashPython` (optional), `BashGit` (optional)
 - Parsing/help: [`swift-argument-parser`](https://github.com/apple/swift-argument-parser)
 - Tests: Swift Testing (`import Testing`), not XCTest
 - Package platforms:
@@ -131,6 +131,9 @@ Optional module commands:
 - `Sources/BashPython/*`
   - `python3`, `python` alias (register via `BashSession.registerPython()` / `registerPython3()`)
   - runtime abstraction: `PythonRuntime`, default `PyodideRuntime`
+- `Sources/BashGit/*`
+  - `git` subset (register via `BashSession.registerGit()`)
+  - runtime/interop: `GitEngine.swift` + `Clibgit2` SwiftPM binary target (`Clibgit2.xcframework`)
 
 ## Filesystem Architecture
 
@@ -184,6 +187,7 @@ All tests are Swift Testing suites:
 - `Tests/BashSwiftTests/TestSupport.swift`
 - `Tests/BashSQLiteTests/*`
 - `Tests/BashPythonTests/*`
+- `Tests/BashGitTests/*`
 
 Coverage style:
 - parser/lexer unit behavior

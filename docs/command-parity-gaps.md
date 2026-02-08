@@ -293,6 +293,13 @@ Source references: `curl`, `html-to-markdown`.
   Gap: practical conversion now supports stdin/file input, heading/paragraph/link/image/list/blockquote/inline-style conversion, `-b/--bullet`, `-c/--code`, `-r/--hr`, and `--heading-style`, with `script/style/footer` stripping, nested-list indentation, and Markdown table rendering (`table/tr/th/td`). Remaining gap is robustness parity with turndown for malformed/deeply irregular HTML and advanced table semantics (colspan/rowspan/alignment).
   Plan: focus next on malformed-markup recovery and better table semantics without adding external HTML conversion dependencies.
 
+## Optional Modules
+
+- `git` via `BashGit` (`P1`)  
+  Status: initial optional module landed with libgit2-backed `git` command surface for `init`, `status` (`--short`), `add` (`-A/--all` + paths), `commit -m`, `log` (`--oneline`, `-n/--max-count`), and `rev-parse --is-inside-work-tree`.
+  Gap: broad CLI parity remains (`branch`, `checkout`/`switch`, `restore`, `diff`, `merge`, remotes/fetch/pull/push, config UX, and error-message parity), and current repository projection/sync strategy should later be optimized for large repos.
+  Plan: next slices should add `branch` + `checkout -b`, then `diff` + `restore`, then remote plumbing and projection performance improvements.
+
 ## Closure Roadmap (Dependency-Light)
 
 1. `P0` engine gaps: `xan`, `awk`, `sed`, `find`, `cp/mv` multi-source, `file`.
