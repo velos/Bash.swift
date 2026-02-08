@@ -88,6 +88,32 @@ struct CurlCommand: BuiltinCommand {
     static let name = "curl"
     static let overview = "Transfer data from or to a URL"
 
+    static func _toAnyBuiltinCommand() -> AnyBuiltinCommand {
+        AnyBuiltinCommand(
+            name: name,
+            aliases: aliases,
+            overview: overview
+        ) { context, args in
+            let normalized = normalizeAttachedValueOptions(args)
+            do {
+                let options = try Options.parse(normalized)
+                return await run(context: &context, options: options)
+            } catch {
+                let message = Options.fullMessage(for: error)
+                if !message.isEmpty {
+                    let output = message.hasSuffix("\n") ? message : message + "\n"
+                    let exitCode = Options.exitCode(for: error).rawValue
+                    if exitCode == 0 {
+                        context.writeStdout(output)
+                    } else {
+                        context.writeStderr(output)
+                    }
+                }
+                return Options.exitCode(for: error).rawValue
+            }
+        }
+    }
+
     static func run(context: inout CommandContext, options: Options) async -> Int32 {
         guard let rawURL = options.url, !rawURL.isEmpty else {
             return emitError(
@@ -222,7 +248,7 @@ struct CurlCommand: BuiltinCommand {
             )
         }
 
-        let includeHeaders = options.include || method == "HEAD"
+        let includeHeaders = options.include || options.head
         let headerData = includeHeaders ? Data(renderHeaders(response: response).utf8) : Data()
         let bodyData = method == "HEAD" ? Data() : response.body
         let outputPath = options.output ?? (options.remoteName ? outputFilename(for: url) : nil)
@@ -322,6 +348,51 @@ struct CurlCommand: BuiltinCommand {
             return raw
         }
         return "https://\(raw)"
+    }
+
+    private static let shortOptionsRequiringAttachedValue: Set<Character> = [
+        "X", "H", "A", "e", "u", "b", "c", "d", "T", "F", "o", "w", "m",
+    ]
+
+    private static func normalizeAttachedValueOptions(_ args: [String]) -> [String] {
+        var output: [String] = []
+        var passthrough = false
+
+        for arg in args {
+            if passthrough {
+                output.append(arg)
+                continue
+            }
+
+            if arg == "--" {
+                passthrough = true
+                output.append(arg)
+                continue
+            }
+
+            guard arg.hasPrefix("-"), !arg.hasPrefix("--"), arg.count > 2 else {
+                output.append(arg)
+                continue
+            }
+
+            let optionCharacter = arg[arg.index(after: arg.startIndex)]
+            guard shortOptionsRequiringAttachedValue.contains(optionCharacter) else {
+                output.append(arg)
+                continue
+            }
+
+            let valueStart = arg.index(arg.startIndex, offsetBy: 2)
+            let value = String(arg[valueStart...])
+            guard !value.isEmpty else {
+                output.append(arg)
+                continue
+            }
+
+            output.append("-\(optionCharacter)")
+            output.append(value)
+        }
+
+        return output
     }
 
     private static func resolvedMethod(options: Options) -> String {
@@ -556,7 +627,7 @@ struct CurlCommand: BuiltinCommand {
         configuration.httpCookieAcceptPolicy = .always
 
         let redirectDelegate = CurlRedirectDelegate(
-            followRedirects: true,
+            followRedirects: options.location,
             maxRedirects: options.maxRedirs ?? 20
         )
         let session = URLSession(
@@ -726,9 +797,6 @@ struct CurlCommand: BuiltinCommand {
         if let referer = options.referer {
             parsed["Referer"] = referer
         }
-        if let cookie = options.cookie, !cookie.hasPrefix("@") {
-            parsed["Cookie"] = cookie
-        }
         if let user = options.user {
             let encoded = Data(user.utf8).base64EncodedString()
             parsed["Authorization"] = "Basic \(encoded)"
@@ -851,11 +919,28 @@ struct CurlCommand: BuiltinCommand {
         requestURL: URL,
         storage: HTTPCookieStorage
     ) async -> CurlOutcome<String?> {
-        guard let cookieOption = options.cookie, cookieOption.hasPrefix("@") else {
+        guard let cookieOption = options.cookie else {
             return .success(nil)
         }
 
-        let fileReference = String(cookieOption.dropFirst())
+        let treatAsFile: Bool
+        let fileReference: String
+        if cookieOption.hasPrefix("@") {
+            treatAsFile = true
+            fileReference = String(cookieOption.dropFirst())
+        } else if shouldTreatCookieOptionAsFile(cookieOption) {
+            treatAsFile = true
+            fileReference = cookieOption
+        } else {
+            treatAsFile = false
+            fileReference = ""
+        }
+
+        guard treatAsFile else {
+            let literal = cookieOption.trimmingCharacters(in: .whitespacesAndNewlines)
+            return .success(literal.isEmpty ? nil : literal)
+        }
+
         let cookieData: Data
         do {
             cookieData = try await context.filesystem.readFile(path: context.resolvePath(fileReference))
@@ -885,6 +970,18 @@ struct CurlCommand: BuiltinCommand {
             return .success(nil)
         }
         return .success(header)
+    }
+
+    private static func shouldTreatCookieOptionAsFile(_ value: String) -> Bool {
+        // curl treats `-b NAME=VALUE` as literal cookies and `-b FILE` as a cookie file.
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return false
+        }
+        if trimmed.contains("=") || trimmed.contains(";") {
+            return false
+        }
+        return true
     }
 
     private static func persistCookieJar(

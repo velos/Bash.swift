@@ -174,4 +174,16 @@ public struct AnyBuiltinCommand: @unchecked Sendable {
             }
         }
     }
+
+    public init(
+        name: String,
+        aliases: [String],
+        overview: String,
+        runCommand: @escaping (inout CommandContext, [String]) async -> Int32
+    ) {
+        self.name = name
+        self.aliases = aliases
+        self.overview = overview
+        self.runCommand = runCommand
+    }
 }

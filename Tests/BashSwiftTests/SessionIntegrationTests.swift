@@ -638,6 +638,22 @@ struct SessionIntegrationTests {
         let missingFile = await session.run("echo 'missing.txt' | xargs cat")
         #expect(missingFile.exitCode != 0)
         #expect(missingFile.stderrString.contains("missing.txt"))
+
+        let maxLines = await session.run("printf 'alpha beta\\ngamma delta\\nepsilon zeta\\n' | xargs -L 2 echo")
+        #expect(maxLines.exitCode == 0)
+        #expect(maxLines.stdoutString == "alpha beta gamma delta\nepsilon zeta\n")
+
+        let maxLinesLong = await session.run("printf 'line one\\nline two\\n' | xargs --max-lines=1 echo")
+        #expect(maxLinesLong.exitCode == 0)
+        #expect(maxLinesLong.stdoutString == "line one\nline two\n")
+
+        let eofShort = await session.run("printf 'one\\ntwo\\nSTOP\\nthree\\n' | xargs -E STOP echo")
+        #expect(eofShort.exitCode == 0)
+        #expect(eofShort.stdoutString == "one two\n")
+
+        let eofLong = await session.run("printf 'x\\ny\\nEND\\nz\\n' | xargs --eof=END echo")
+        #expect(eofLong.exitCode == 0)
+        #expect(eofLong.stdoutString == "x y\n")
     }
 
     @Test("jq yq and xan commands")
@@ -809,6 +825,20 @@ struct SessionIntegrationTests {
         #expect(combinedFlags.exitCode == 0)
         #expect(combinedFlags.stdoutString == "ok")
 
+        let requestEquals = await session.run("curl --request=HEAD data:text/plain,ok")
+        #expect(requestEquals.exitCode == 0)
+        #expect(requestEquals.stdoutString.isEmpty)
+
+        let requestAttached = await session.run("curl -XHEAD data:text/plain,ok")
+        #expect(requestAttached.exitCode == 0)
+        #expect(requestAttached.stdoutString.isEmpty)
+
+        let outputAttached = await session.run("curl -oattached.txt data:text/plain,ok")
+        #expect(outputAttached.exitCode == 0)
+        let attachedFile = await session.run("cat attached.txt")
+        #expect(attachedFile.exitCode == 0)
+        #expect(attachedFile.stdoutString == "ok")
+
         let connectTimeout = await session.run("curl --connect-timeout 1 data:text/plain,ok")
         #expect(connectTimeout.exitCode == 0)
 
@@ -834,6 +864,10 @@ struct SessionIntegrationTests {
         let authAndHeaderFlags = await session.run("curl -A Agent/1.0 -e https://example.com -u user:pass -b session=abc data:text/plain,ok")
         #expect(authAndHeaderFlags.exitCode == 0)
         #expect(authAndHeaderFlags.stdoutString == "ok")
+
+        let missingCookieFile = await session.run("curl -b missing-cookies.txt https://example.com")
+        #expect(missingCookieFile.exitCode == 26)
+        #expect(missingCookieFile.stderrString.contains("missing-cookies.txt"))
 
         let remoteFileHost = await session.run("curl file://evil.com/etc/hosts")
         #expect(remoteFileHost.exitCode != 0)

@@ -22,6 +22,8 @@ struct XargsCommand: BuiltinCommand {
                   -I REPLACE            replace occurrences of REPLACE with input
                   -d DELIM              use DELIM as input delimiter (for example: -d '\\n')
                   -n NUM                use at most NUM arguments per command line
+                  -L NUM                use at most NUM input lines per command line
+                  -E STR                stop processing at line matching STR
                   -P NUM                run at most NUM commands at a time
                   -0, --null            items are separated by NUL, not whitespace
                   -t, --verbose         print commands before executing them
@@ -46,7 +48,9 @@ struct XargsCommand: BuiltinCommand {
         var replace: String?
         var delimiter: String?
         var maxArgs: Int?
+        var maxLines: Int?
         var maxProcs: Int?
+        var eof: String?
         var nullSeparated: Bool
         var verbose: Bool
         var noRunIfEmpty: Bool
@@ -62,7 +66,9 @@ struct XargsCommand: BuiltinCommand {
         var replace: String?
         var delimiter: String?
         var maxArgs: Int?
+        var maxLines: Int?
         var maxProcs: Int?
+        var eof: String?
         var nullSeparated = false
         var verbose = false
         var noRunIfEmpty = false
@@ -102,6 +108,27 @@ struct XargsCommand: BuiltinCommand {
                 continue
             }
 
+            if arg == "-L" || arg == "--max-lines" {
+                guard index + 1 < args.count else {
+                    return .failure("xargs: option requires an argument -- L\n")
+                }
+                guard let value = Int(args[index + 1]), value > 0 else {
+                    return .failure("xargs: invalid number for -L: \(args[index + 1])\n")
+                }
+                maxLines = value
+                index += 2
+                continue
+            }
+
+            if let value = parseEqualsOption(argument: arg, prefix: "--max-lines=") {
+                guard let numeric = Int(value), numeric > 0 else {
+                    return .failure("xargs: invalid number for -L: \(value)\n")
+                }
+                maxLines = numeric
+                index += 1
+                continue
+            }
+
             if arg == "-P" {
                 guard index + 1 < args.count else {
                     return .failure("xargs: option requires an argument -- P\n")
@@ -111,6 +138,21 @@ struct XargsCommand: BuiltinCommand {
                 }
                 maxProcs = value
                 index += 2
+                continue
+            }
+
+            if arg == "-E" || arg == "--eof" {
+                guard index + 1 < args.count else {
+                    return .failure("xargs: option requires an argument -- E\n")
+                }
+                eof = args[index + 1]
+                index += 2
+                continue
+            }
+
+            if let value = parseEqualsOption(argument: arg, prefix: "--eof=") {
+                eof = value
+                index += 1
                 continue
             }
 
@@ -167,7 +209,9 @@ struct XargsCommand: BuiltinCommand {
                 replace: replace,
                 delimiter: delimiter,
                 maxArgs: maxArgs,
+                maxLines: maxLines,
                 maxProcs: maxProcs,
+                eof: eof,
                 nullSeparated: nullSeparated,
                 verbose: verbose,
                 noRunIfEmpty: noRunIfEmpty,
@@ -183,7 +227,9 @@ struct XargsCommand: BuiltinCommand {
         let items = parseItems(
             stdin: context.stdin,
             nullSeparated: invocation.nullSeparated,
-            delimiter: invocation.delimiter
+            delimiter: invocation.delimiter,
+            maxLines: invocation.maxLines,
+            eof: invocation.eof
         )
         if items.isEmpty {
             if invocation.noRunIfEmpty {
@@ -197,7 +243,8 @@ struct XargsCommand: BuiltinCommand {
             command: command,
             items: items,
             replace: invocation.replace,
-            maxArgs: invocation.maxArgs
+            maxArgs: invocation.maxArgs,
+            maxLines: invocation.maxLines
         )
 
         return await executeInvocations(
@@ -211,37 +258,56 @@ struct XargsCommand: BuiltinCommand {
     private static func parseItems(
         stdin: Data,
         nullSeparated: Bool,
-        delimiter: String?
+        delimiter: String?,
+        maxLines: Int?,
+        eof: String?
     ) -> [String] {
+        let output: [String]
         if nullSeparated {
-            return stdin
+            output = stdin
                 .split(separator: 0, omittingEmptySubsequences: true)
                 .map { String(decoding: $0, as: UTF8.self) }
                 .filter { !$0.isEmpty }
-        }
-
-        let input = CommandIO.decodeString(stdin)
-        if let delimiter {
-            var trimmed = input
-            if trimmed.hasSuffix("\n") {
-                trimmed.removeLast()
+        } else {
+            let input = CommandIO.decodeString(stdin)
+            if let delimiter {
+                var trimmed = input
+                if trimmed.hasSuffix("\n") {
+                    trimmed.removeLast()
+                }
+                output = trimmed
+                    .components(separatedBy: delimiter)
+                    .filter { !$0.isEmpty }
+            } else if maxLines != nil {
+                output = input
+                    .split(separator: "\n", omittingEmptySubsequences: false)
+                    .map(String.init)
+                    .filter { !$0.isEmpty }
+            } else {
+                output = input
+                    .split(whereSeparator: { $0.isWhitespace })
+                    .map(String.init)
+                    .filter { !$0.isEmpty }
             }
-            return trimmed
-                .components(separatedBy: delimiter)
-                .filter { !$0.isEmpty }
         }
 
-        return input
-            .split(whereSeparator: { $0.isWhitespace })
-            .map(String.init)
-            .filter { !$0.isEmpty }
+        guard let eof else {
+            return output
+        }
+
+        if let index = output.firstIndex(of: eof) {
+            return Array(output[..<index])
+        }
+
+        return output
     }
 
     private static func buildInvocations(
         command: [String],
         items: [String],
         replace: String?,
-        maxArgs: Int?
+        maxArgs: Int?,
+        maxLines: Int?
     ) -> [[String]] {
         if let replace {
             return items.map { item in
@@ -262,7 +328,25 @@ struct XargsCommand: BuiltinCommand {
             return output
         }
 
+        if let maxLines {
+            var output: [[String]] = []
+            var index = 0
+            while index < items.count {
+                let end = min(index + maxLines, items.count)
+                output.append(command + items[index..<end])
+                index = end
+            }
+            return output
+        }
+
         return [command + items]
+    }
+
+    private static func parseEqualsOption(argument: String, prefix: String) -> String? {
+        guard argument.hasPrefix(prefix) else {
+            return nil
+        }
+        return String(argument.dropFirst(prefix.count))
     }
 
     private static func executeInvocations(

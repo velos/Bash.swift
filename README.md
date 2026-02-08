@@ -24,10 +24,12 @@ You create a `BashSession`, run shell command strings, and get structured `stdou
 .targets: [
     .target(
         name: "YourTarget",
-        dependencies: ["BashSwift"]
+        dependencies: ["BashSwift", "BashSQLite"]
     )
 ]
 ```
+
+`BashSQLite` is optional. If you only need the core shell, depend on `BashSwift` alone.
 
 ## Platform Support
 
@@ -52,6 +54,16 @@ print(ls.stdoutString) // file.txt
 
 let piped = await session.run("echo hello | tee out.txt > copy.txt")
 print(piped.exitCode) // 0
+```
+
+Optional `sqlite3` registration:
+
+```swift
+import BashSQLite
+
+await session.registerSQLite3()
+let sql = await session.run("sqlite3 :memory: \"select 1;\"")
+print(sql.stdoutString) // 1
 ```
 
 ## Public API
@@ -238,7 +250,7 @@ All implemented commands support `--help`.
 | `tr` | `-d`, `-s`, `-c`; supports escapes (`\\n`, `\\t`, `\\r`) and ranges (`a-z`) |
 | `awk` | `-F <separator>`; supports `{print}`, `{print $N}`, `/regex/ {print ...}` |
 | `sed` | substitution scripts only: `s/pattern/replacement/` and `s/.../.../g` |
-| `xargs` | `-I <replace>`, `-d <delim>`, `-n <max-args>`, `-P <max-procs>`, `-0/--null`, `-t/--verbose`, `-r/--no-run-if-empty`; default command `echo` |
+| `xargs` | `-I <replace>`, `-d <delim>`, `-n <max-args>`, `-L/--max-lines <num>`, `-E/--eof <str>`, `-P <max-procs>`, `-0/--null`, `-t/--verbose`, `-r/--no-run-if-empty`; default command `echo` |
 | `printf` | format string + positional values (`%s`, `%d`, `%i`, `%f`, `%%`) |
 | `base64` | encode by default; `-d`, `--decode` |
 | `sha256sum` | optional files (or stdin) |
@@ -249,6 +261,7 @@ All implemented commands support `--help`.
 
 | Command | Supported Options |
 | --- | --- |
+| `sqlite3` | **Opt-in via `BashSQLite`**: modes `-list`, `-csv`, `-json`, `-line`, `-column`, `-table`, `-markdown`; `-header`, `-noheader`, `-separator <sep>`, `-newline <nl>`, `-nullvalue <str>`, `-readonly`, `-bail`, `-cmd <sql>`, `-version`, `--`; syntax `sqlite3 [options] [database] [sql]` |
 | `jq` | `-r`, `-c`, `-e`, `-s`, `-n`, `-j`, `-S`; query + optional files. Query subset supports paths, `|`, `select(...)`, comparisons, `and`/`or`/`not`, `//` |
 | `yq` | `-r`, `-c`, `-e`, `-s`, `-n`, `-j`, `-S`; query + optional files (YAML + JSON input), same query subset as `jq` |
 | `xan` | subcommands: `count`, `headers`, `select`, `filter` |
@@ -302,7 +315,7 @@ All implemented commands support `--help`.
 
 | Command | Supported Options |
 | --- | --- |
-| `curl` | URL argument; `-s`, `-S`, `-i`, `-I`, `-f`, `-L`, `-v`, `-X <method>`, `-H <header>...`, `-A <ua>`, `-e <referer>`, `-u <user:pass>`, `-b <cookie|@file>`, `-c <cookie-jar-file>`, `-d/--data <value>...`, `--data-raw <value>...`, `--data-binary <value>...`, `--data-urlencode <value>...`, `-T <file>`, `-F <name=value|name=@file>`, `-o <file>`, `-O`, `-w <format>`, `-m <seconds>`, `--connect-timeout <seconds>`, `--max-redirs <count>`; supports `data:`, `file:`, and HTTP(S) URLs (`file:` is scoped to the shell filesystem root) |
+| `curl` | URL argument; `-s`, `-S`, `-i`, `-I`, `-f`, `-L`, `-v`, `-X <method>`, `-H <header>...`, `-A <ua>`, `-e <referer>`, `-u <user:pass>`, `-b <cookie|@file|file>`, `-c <cookie-jar-file>`, `-d/--data <value>...`, `--data-raw <value>...`, `--data-binary <value>...`, `--data-urlencode <value>...`, `-T <file>`, `-F <name=value|name=@file>`, `-o <file>`, `-O`, `-w <format>`, `-m <seconds>`, `--connect-timeout <seconds>`, `--max-redirs <count>`; supports `data:`, `file:`, and HTTP(S) URLs (`file:` is scoped to the shell filesystem root) |
 | `html-to-markdown` | `-b/--bullet <marker>`, `-c/--code <fence>`, `-r/--hr <rule>`, `--heading-style <atx|setext>`; input from file or stdin; strips `script/style/footer` blocks; supports nested lists and Markdown table rendering |
 
 ## Command Behaviors and Notes
@@ -323,10 +336,12 @@ The project currently includes parser, filesystem, integration, and command cove
 ## Roadmap
 
 ### Priority (next)
-1. `curl` parity expansion
-2. `xargs` parity expansion
+1. `curl` advanced parity: cookie-jar/edge parsing, multipart/upload depth, verbose/error-code alignment
+2. `xargs` advanced GNU parity: size limits, prompt mode, delimiter/empty-input edge semantics
+3. `html-to-markdown` robustness: malformed HTML recovery and richer table semantics (`colspan`/`rowspan`/alignment)
 
 ### Deferred for later milestones
-- `sqlite3`, `python`, `python3`
+- `python`, `python3`, `git`
 - `curl` advanced HTTP parity
 - `xargs` advanced GNU compatibility
+- `sqlite3` advanced parity (`-box`, `-html`, `-quote`, `-tabs`, dot-commands, shell-level compat polish)

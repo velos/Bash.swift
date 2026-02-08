@@ -126,8 +126,8 @@ Source references: `grep`, `rg`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, `t
   Plan: implement command AST + executor phases: (`d`,`a`,`i`,`c`,`g/G`,`h/H`,`x`,`n/N`,`y`,`q`,`b/t/:`) plus `-f`; keep engine internal.
 
 - `xargs` (`P1`)  
-  Gap: practical subset is now implemented (`-I`, `-d`, `-n`, `-P`, `-0/--null`, `-t/--verbose`, `-r/--no-run-if-empty`) with command execution via shell subcommands and cwd propagation. Remaining gaps are deeper GNU edge compatibility (`-L`, `-E`, size limits, prompt mode, and exact empty-input semantics).
-  Plan: keep the current execution engine and add option-surface/edge-semantics parity incrementally, starting with `-L` and stricter delimiter/quoting behavior.
+  Gap: practical subset now includes `-I`, `-d`, `-n`, `-L/--max-lines`, `-E/--eof`, `-P`, `-0/--null`, `-t/--verbose`, and `-r/--no-run-if-empty`, with command execution via shell subcommands and cwd propagation. Remaining gaps are deeper GNU compatibility (size limits, prompt mode, and exact delimiter/empty-input edge semantics).
+  Plan: keep the current execution engine and add option-surface/edge-semantics parity incrementally, starting with size-limit and prompt-mode behavior.
 
 - `printf` (`P1`)  
   Gap: missing width/precision/flag formatting, `%x/%o`, `-v` assignment.  
@@ -143,7 +143,12 @@ Source references: `grep`, `rg`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, `t
 
 ## Data Processing
 
-Source references: `jq`, `yq`, `xan`, plus `just-bash-main/src/commands/query-engine/**`.
+Source references: `jq`, `yq`, `xan`, `sqlite3`, plus `just-bash-main/src/commands/query-engine/**`.
+
+- `sqlite3` (`P1`)  
+  Status: v1 optional module shipped in `BashSQLite` with `sqlite3 [options] [database] [sql]`, modes (`-list/-csv/-json/-line/-column/-table/-markdown`), control flags (`-header/-noheader/-separator/-newline/-nullvalue/-readonly/-bail/-cmd/-version/--`), `:memory:` support, stdin SQL support, and persistence through `ShellFilesystem` for both `ReadWriteFilesystem` and `InMemoryFilesystem`.
+  Gap: no dot-commands (`.schema`, `.read`, `.mode`), no advanced output modes (`-box`, `-html`, `-quote`, `-ascii`, `-tabs`), and no shell-level sqlite meta-command parity.
+  Plan: add advanced output modes first, then safe subset of dot-commands, then deeper sqlite-shell UX parity.
 
 - `jq` (`P1`)  
   Gap: phase-1 parser/evaluator landed with paths, pipes, `select(...)`, comparisons, boolean operators, and `//`, plus flags `-e/-s/-n/-j/-S`. Remaining gaps are advanced jq semantics (functions/assignments/reduce, richer operators, stream semantics, `--tab` formatting parity).  
@@ -276,8 +281,8 @@ Source references: `clear`, `date`, `history`, `seq`, `sleep`, `time`, `timeout`
 Source references: `curl`, `html-to-markdown`.
 
 - `curl` (`P1`)  
-  Gap: expanded subset now supports `-s/-S`, `-i`, `-I`, `-f`, `-L`, `-v`, `-X`, `-H`, `-A`, `-e`, `-u`, `-b` (literal and `@file`), `-c` cookie-jar output, `-d/--data`, `--data-raw`, `--data-binary`, `--data-urlencode`, `-T`, `-F`, `-o`, `-O`, `-w`, `-m`, `--connect-timeout`, and `--max-redirs`, with URL support for `data:`, `file:`, and HTTP(S). `file:` remains jailed to the shell filesystem and rejects remote hosts (for example, `file://evil.com/...`).
-  Plan: close remaining high-value gaps in slices: stronger redirect-policy parity (`-L` semantics and detailed redirect messaging), richer cookie compatibility (full curl jar semantics and edge parsing), and deeper multipart/upload and verbose/error-code parity. Keep allow-list policy as a separate safety feature.
+  Gap: expanded subset now supports `-s/-S`, `-i`, `-I`, `-f`, `-L`, `-v`, `-X`, `-H`, `-A`, `-e`, `-u`, `-b` (literal, `@file`, and file-path fallback), `-c` cookie-jar output, `-d/--data`, `--data-raw`, `--data-binary`, `--data-urlencode`, `-T`, `-F`, `-o`, `-O`, `-w`, `-m`, `--connect-timeout`, and `--max-redirs`, with URL support for `data:`, `file:`, and HTTP(S). Redirect following now honors `-L`. `file:` remains jailed to the shell filesystem and rejects remote hosts (for example, `file://evil.com/...`).
+  Plan: close remaining high-value gaps in slices: richer cookie compatibility (full curl jar semantics and edge parsing), and deeper multipart/upload and verbose/error-code parity. Keep allow-list policy as a separate safety feature.
 
 - `html-to-markdown` (`P1`)  
   Gap: practical conversion now supports stdin/file input, heading/paragraph/link/image/list/blockquote/inline-style conversion, `-b/--bullet`, `-c/--code`, `-r/--hr`, and `--heading-style`, with `script/style/footer` stripping, nested-list indentation, and Markdown table rendering (`table/tr/th/td`). Remaining gap is robustness parity with turndown for malformed/deeply irregular HTML and advanced table semantics (colspan/rowspan/alignment).

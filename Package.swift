@@ -15,6 +15,10 @@ let package = Package(
             name: "BashSwift",
             targets: ["BashSwift"]
         ),
+        .library(
+            name: "BashSQLite",
+            targets: ["BashSQLite"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
@@ -26,9 +30,26 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
+        .target(
+            name: "BashSQLite",
+            dependencies: [
+                "BashSwift",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            linkerSettings: [
+                .linkedLibrary("sqlite3")
+            ]
+        ),
         .testTarget(
             name: "BashSwiftTests",
             dependencies: ["BashSwift"]
+        ),
+        .testTarget(
+            name: "BashSQLiteTests",
+            dependencies: [
+                "BashSwift",
+                "BashSQLite",
+            ]
         ),
     ]
 )
