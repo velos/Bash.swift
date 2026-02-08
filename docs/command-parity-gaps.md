@@ -143,7 +143,12 @@ Source references: `grep`, `rg`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, `t
 
 ## Data Processing
 
-Source references: `jq`, `yq`, `xan`, `sqlite3`, plus `just-bash-main/src/commands/query-engine/**`.
+Source references: `jq`, `yq`, `xan`, `sqlite3`, `python3/python`, plus `just-bash-main/src/commands/query-engine/**`.
+
+- `python3` / `python` (`P1`)  
+  Status: v1 optional module shipped in `BashPython`, with `python3`/`python` command registration, argument surface (`-c`, `-m`, script file, stdin, `-V/--version`), and runtime request mapping that carries env/cwd/argv/stdin through to a Pyodide-backed runtime. Filesystem access is bridged to `ShellFilesystem` so Python file operations stay inside the shell filesystem model.
+  Gap: broad parity gaps remain vs just-bash Python surface (security hardening depth, timeout/signal controls, richer stdlib/import/network behavior, and edge-flag compatibility).
+  Plan: close in slices: (1) runtime hardening and deterministic timeout controls, (2) option-surface and error-message parity, (3) stdlib/import compatibility and test parity expansion.
 
 - `sqlite3` (`P1`)  
   Status: v1 optional module shipped in `BashSQLite` with `sqlite3 [options] [database] [sql]`, modes (`-list/-csv/-json/-line/-column/-table/-markdown`), control flags (`-header/-noheader/-separator/-newline/-nullvalue/-readonly/-bail/-cmd/-version/--`), `:memory:` support, stdin SQL support, and persistence through `ShellFilesystem` for both `ReadWriteFilesystem` and `InMemoryFilesystem`.

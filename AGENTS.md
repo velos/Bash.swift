@@ -15,7 +15,7 @@ Key properties:
 ## Tech + Platform Baseline
 
 - Swift tools: `6.2`
-- Package: SwiftPM library target `BashSwift`
+- Package: SwiftPM library products `BashSwift`, `BashSQLite` (optional), `BashPython` (optional)
 - Parsing/help: [`swift-argument-parser`](https://github.com/apple/swift-argument-parser)
 - Tests: Swift Testing (`import Testing`), not XCTest
 - Package platforms:
@@ -125,6 +125,13 @@ Network commands:
 - `Sources/BashSwift/Commands/Network/HtmlToMarkdownCommand.swift`
   - `html-to-markdown`
 
+Optional module commands:
+- `Sources/BashSQLite/*`
+  - `sqlite3` (register via `BashSession.registerSQLite3()`)
+- `Sources/BashPython/*`
+  - `python3`, `python` alias (register via `BashSession.registerPython()` / `registerPython3()`)
+  - runtime abstraction: `PythonRuntime`, default `PyodideRuntime`
+
 ## Filesystem Architecture
 
 Filesystem protocol:
@@ -175,6 +182,8 @@ All tests are Swift Testing suites:
 - `Tests/BashSwiftTests/CommandCoverageTests.swift`
 - `Tests/BashSwiftTests/FilesystemOptionsTests.swift`
 - `Tests/BashSwiftTests/TestSupport.swift`
+- `Tests/BashSQLiteTests/*`
+- `Tests/BashPythonTests/*`
 
 Coverage style:
 - parser/lexer unit behavior
