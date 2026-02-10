@@ -14,6 +14,10 @@ struct SQLite3OptionsTests {
         #expect(help.exitCode == 0)
         #expect(help.stdoutString.contains("USAGE:"))
 
+        let shortHelp = await session.run("sqlite3 -h")
+        #expect(shortHelp.exitCode == 0)
+        #expect(shortHelp.stdoutString.contains("USAGE:"))
+
         let version = await session.run("sqlite3 -version")
         #expect(version.exitCode == 0)
         #expect(!version.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

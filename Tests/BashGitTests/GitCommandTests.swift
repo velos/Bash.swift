@@ -5,6 +5,20 @@ import Bash
 
 @Suite("Git Command")
 struct GitCommandTests {
+    @Test("help flags show git usage")
+    func helpFlagsShowUsage() async throws {
+        let (session, root) = try await GitTestSupport.makeReadWriteSession()
+        defer { GitTestSupport.removeDirectory(root) }
+
+        let longHelp = await session.run("git --help")
+        #expect(longHelp.exitCode == 0)
+        #expect(longHelp.stdoutString.contains("USAGE:"))
+
+        let shortHelp = await session.run("git -h")
+        #expect(shortHelp.exitCode == 0)
+        #expect(shortHelp.stdoutString.contains("USAGE:"))
+    }
+
     @Test("init and rev-parse work")
     func initAndRevParse() async throws {
         let (session, root) = try await GitTestSupport.makeReadWriteSession()

@@ -16,6 +16,10 @@ struct Python3CommandTests {
         #expect(help.exitCode == 0)
         #expect(help.stdoutString.contains("USAGE:"))
 
+        let shortHelp = await session.run("python3 -h")
+        #expect(shortHelp.exitCode == 0)
+        #expect(shortHelp.stdoutString.contains("USAGE:"))
+
         let version = await session.run("python --version")
         #expect(version.exitCode == 0)
         #expect(version.stdoutString.contains("Python 3"))

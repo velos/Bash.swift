@@ -76,6 +76,9 @@ struct WhoamiCommand: BuiltinCommand {
 
 struct HelpCommand: BuiltinCommand {
     struct Options: ParsableArguments {
+        @Flag(name: .shortAndLong, help: "Show command overviews")
+        var verbose = false
+
         @Argument(help: "Optional command name")
         var command: String?
     }
@@ -92,8 +95,16 @@ struct HelpCommand: BuiltinCommand {
         }
 
         let commands = Set(context.availableCommands).sorted()
+        context.writeStdout("Available commands (use '<command> --help' or '<command> -h' for usage):\n")
+        let longestName = commands.map(\.count).max() ?? 0
         for command in commands {
-            context.writeStdout("\(command)\n")
+            if options.verbose {
+                let overview = context.commandRegistry[command]?.overview ?? ""
+                let padding = String(repeating: " ", count: max(0, longestName - command.count))
+                context.writeStdout("\(command)\(padding)  \(overview)\n")
+            } else {
+                context.writeStdout("\(command)\n")
+            }
         }
         return 0
     }

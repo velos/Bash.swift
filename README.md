@@ -4,6 +4,18 @@
 
 You create a `BashSession`, run shell command strings, and get structured `stdout` / `stderr` / `exitCode` results. Commands mutate a real directory on disk through a sandboxed, root-jail filesystem abstraction.
 
+## Contents
+
+- [Why](#why)
+- [Installation](#installation)
+- [Platform Support](#platform-support)
+- [Quick Start](#quick-start)
+- [Public API](#public-api)
+- [Filesystem Model](#filesystem-model)
+- [Implemented Commands](#implemented-commands)
+- [Testing](#testing)
+- [Roadmap](#roadmap)
+
 ## Why
 
 `Bash` is aimed at practical shell behavior you can use from app code and tests:
@@ -13,6 +25,23 @@ You create a `BashSession`, run shell command strings, and get structured `stdou
 - Shell parsing/execution features needed for scripts (`|`, redirection, `&&`, `||`, `;`)
 
 ## Installation
+
+### Swift Package Manager (remote package)
+
+```swift
+// Package.swift
+.dependencies: [
+    .package(url: "https://github.com/<org>/Bash.swift.git", from: "0.1.0")
+],
+.targets: [
+    .target(
+        name: "YourTarget",
+        dependencies: ["Bash"]
+    )
+]
+```
+
+Replace `<org>` and the version with the Git host/org/tag you want to consume.
 
 ### Swift Package Manager (local package)
 
@@ -24,12 +53,18 @@ You create a `BashSession`, run shell command strings, and get structured `stdou
 .targets: [
     .target(
         name: "YourTarget",
-        dependencies: ["Bash", "BashSQLite", "BashPython", "BashGit"]
+        dependencies: ["Bash"]
     )
 ]
 ```
 
-`BashSQLite`, `BashPython`, and `BashGit` are optional. If you only need the core shell, depend on `Bash` alone.
+`BashSQLite`, `BashPython`, and `BashGit` are optional products. Add them only if needed:
+
+```swift
+dependencies: ["Bash", "BashSQLite", "BashPython", "BashGit"]
+```
+
+If you include optional products, remember to register their commands at runtime (`registerSQLite3`, `registerPython`, `registerGit`).
 
 ## Platform Support
 
@@ -155,7 +190,7 @@ Available filesystem implementations:
 ## How It Works
 
 Execution pipeline:
-1. Command line is lexed/parses into a shell AST.
+1. Command line is lexed and parsed into a shell AST.
 2. Variables/globs are expanded.
 3. Pipelines/chains execute against registered in-process built-ins.
 4. The session state is updated (`cwd`, environment, history).
@@ -351,7 +386,7 @@ All implemented commands support `--help`.
 
 - Unknown commands return exit code `127` and write `command not found` to `stderr`.
 - Non-zero command exits are returned in `CommandResult.exitCode` (not thrown).
-- `BashSession.init` can throw; `run` always returns `CommandResult` (including parser/runtime failures as non-zero exits).
+- `BashSession.init` can throw; `run` always returns `CommandResult` (including parser/runtime failures with exit code `2`).
 - Pipelines are currently sequential and buffered (`stdout` from one command becomes `stdin` for the next command).
 
 ## Testing
@@ -368,10 +403,10 @@ The project currently includes parser, filesystem, integration, and command cove
 1. `curl` advanced parity: cookie-jar/edge parsing, multipart/upload depth, verbose/error-code alignment
 2. `xargs` advanced GNU parity: size limits, prompt mode, delimiter/empty-input edge semantics
 3. `html-to-markdown` robustness: malformed HTML recovery and richer table semantics (`colspan`/`rowspan`/alignment)
+4. `sqlite3` advanced parity: `-box`, `-html`, `-quote`, `-tabs`, dot-commands, and shell-level compatibility polish
 
 ### Deferred for later milestones
-- `git`
-- `curl` advanced HTTP parity
-- `xargs` advanced GNU compatibility
-- `sqlite3` advanced parity (`-box`, `-html`, `-quote`, `-tabs`, dot-commands, shell-level compat polish)
+- `git` parity expansion
+- query engine parity expansion for `jq` / `yq` (functions, assignments, richer streaming behavior)
+- command edge-case parity for file utilities (`cp`, `mv`, `ln`, `readlink`, `touch`)
 - `python3` advanced parity (broader CLI flags, richer stdlib/package parity, hardening and execution controls)

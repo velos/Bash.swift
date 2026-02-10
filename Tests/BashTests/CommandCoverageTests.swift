@@ -25,6 +25,23 @@ struct CommandCoverageTests {
                 !result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 "\(command) --help should emit stdout"
             )
+            #expect(result.stdoutString.contains("USAGE:"), "\(command) --help should include USAGE")
+        }
+    }
+
+    @Test("all builtins support -h")
+    func allBuiltinsSupportShortHelp() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        for command in commands {
+            let result = await session.run("\(command) -h")
+            #expect(result.exitCode == 0, "\(command) -h should exit 0")
+            #expect(
+                !result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                "\(command) -h should emit stdout"
+            )
+            #expect(result.stdoutString.contains("USAGE:"), "\(command) -h should include USAGE")
         }
     }
 
@@ -55,6 +72,23 @@ struct CommandCoverageTests {
         #expect(lines.contains("ls"))
         #expect(lines.contains("grep"))
         #expect(lines.contains("touch"))
+    }
+
+    @Test("help verbose output includes command overviews")
+    func helpVerboseOutputIncludesOverviews() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let help = await session.run("help --verbose")
+        #expect(help.exitCode == 0)
+
+        let lines = help.stdoutString
+            .split(separator: "\n")
+            .map(String.init)
+
+        #expect(lines.contains(where: { $0.hasPrefix("ls") && $0.contains("List directory contents") }))
+        #expect(lines.contains(where: { $0.hasPrefix("grep") && $0.contains("Print lines matching a pattern") }))
+        #expect(lines.contains(where: { $0.hasPrefix("touch") && $0.contains("Change file timestamps or create empty files") }))
     }
 
     @Test("find and ls formatting snapshots")
