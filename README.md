@@ -1,8 +1,12 @@
-# Bash
+# Bash.swift
 
-`Bash` provides an in-process, stateful, emulated shell for Swift apps.
+`Bash.swift` provides an in-process, stateful, emulated shell for Swift apps. It's heavily inspired by [just-bash](https://github.com/vercel-labs/just-bash).
 
 You create a `BashSession`, run shell command strings, and get structured `stdout` / `stderr` / `exitCode` results. Commands mutate a real directory on disk through a sandboxed, root-jail filesystem abstraction.
+
+## Development Process
+
+Development of `Bash.swift` was approached very similarly to [just-bash](https://github.com/vercel-labs/just-bash). All output was with GPT-5.3-Codex Extra High thinking, initiated by an interactively built plan, executed by the model after the plan was finalized.
 
 ## Contents
 
@@ -18,7 +22,7 @@ You create a `BashSession`, run shell command strings, and get structured `stdou
 
 ## Why
 
-`Bash` is aimed at practical shell behavior you can use from app code and tests:
+`Bash.swift` is aimed at providing a tool for use in agents. Leveraging the approach that "Bash is all you need". To enable this use-case, it provides:
 - Stateful shell session (`cd`, `export`, `history` persist across `run` calls)
 - Real filesystem side effects under a controlled root directory
 - Built-in fake CLIs implemented in Swift (no subprocess dependency)
@@ -31,24 +35,7 @@ You create a `BashSession`, run shell command strings, and get structured `stdou
 ```swift
 // Package.swift
 .dependencies: [
-    .package(url: "https://github.com/<org>/Bash.swift.git", from: "0.1.0")
-],
-.targets: [
-    .target(
-        name: "YourTarget",
-        dependencies: ["Bash"]
-    )
-]
-```
-
-Replace `<org>` and the version with the Git host/org/tag you want to consume.
-
-### Swift Package Manager (local package)
-
-```swift
-// Package.swift
-.dependencies: [
-    .package(path: "../Bash.swift")
+    .package(url: "https://github.com/zac/Bash.swift.git", from: "0.1.0")
 ],
 .targets: [
     .target(
@@ -212,11 +199,6 @@ Execution pipeline:
 - `if/then/elif/else/fi`
 - `for/while/until`
 - Shell functions and `local`
-
-## Command Parity Tracker
-
-To track command-level gaps versus `just-bash` and the recommended dependency-light closure approach, see:
-- `docs/command-parity-gaps.md`
 
 ## Filesystem Model
 
