@@ -52,6 +52,10 @@ public final actor BashSession {
             let history = historyStore
             let registry = commandRegistry
             let enableGlobbing = options.enableGlobbing
+            let secretPolicy = options.secretPolicy
+            let secretResolver = options.secretResolver
+            let secretOutputRedactor = options.secretOutputRedactor
+            let secretTracker = secretPolicy == .off ? nil : SecretExposureTracker()
 
             let execution = await ShellExecutor.execute(
                 parsedLine: parsed,
@@ -61,13 +65,31 @@ public final actor BashSession {
                 environment: startEnvironment,
                 history: history,
                 commandRegistry: registry,
-                enableGlobbing: enableGlobbing
+                enableGlobbing: enableGlobbing,
+                secretPolicy: secretPolicy,
+                secretResolver: secretResolver,
+                secretTracker: secretTracker
             )
+
+            var result = execution.result
+            if let secretTracker {
+                let replacements = await secretTracker.snapshot()
+                if !replacements.isEmpty {
+                    result.stdout = secretOutputRedactor.redact(
+                        data: result.stdout,
+                        replacements: replacements
+                    )
+                    result.stderr = secretOutputRedactor.redact(
+                        data: result.stderr,
+                        replacements: replacements
+                    )
+                }
+            }
 
             currentDirectoryStore = execution.currentDirectory
             environmentStore = execution.environment
             environmentStore["PWD"] = currentDirectoryStore
-            return execution.result
+            return result
         } catch {
             return CommandResult(
                 stdout: Data(),

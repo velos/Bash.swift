@@ -15,7 +15,10 @@ enum ShellExecutor {
         environment: [String: String],
         history: [String],
         commandRegistry: [String: AnyBuiltinCommand],
-        enableGlobbing: Bool
+        enableGlobbing: Bool,
+        secretPolicy: SecretHandlingPolicy,
+        secretResolver: (any SecretReferenceResolving)?,
+        secretTracker: SecretExposureTracker?
     ) async -> ShellExecutionResult {
         var currentDirectory = currentDirectory
         var environment = environment
@@ -45,7 +48,10 @@ enum ShellExecutor {
                 environment: &environment,
                 history: history,
                 commandRegistry: commandRegistry,
-                enableGlobbing: enableGlobbing
+                enableGlobbing: enableGlobbing,
+                secretPolicy: secretPolicy,
+                secretResolver: secretResolver,
+                secretTracker: secretTracker
             )
 
             aggregateOut.append(segmentResult.stdout)
@@ -83,7 +89,10 @@ enum ShellExecutor {
         environment: inout [String: String],
         history: [String],
         commandRegistry: [String: AnyBuiltinCommand],
-        enableGlobbing: Bool
+        enableGlobbing: Bool,
+        secretPolicy: SecretHandlingPolicy,
+        secretResolver: (any SecretReferenceResolving)?,
+        secretTracker: SecretExposureTracker?
     ) async -> CommandResult {
         var nextInput = initialInput
         var aggregateStderr = Data()
@@ -98,7 +107,10 @@ enum ShellExecutor {
                 environment: &environment,
                 history: history,
                 commandRegistry: commandRegistry,
-                enableGlobbing: enableGlobbing
+                enableGlobbing: enableGlobbing,
+                secretPolicy: secretPolicy,
+                secretResolver: secretResolver,
+                secretTracker: secretTracker
             )
 
             aggregateStderr.append(commandResult.stderr)
@@ -119,7 +131,10 @@ enum ShellExecutor {
         environment: inout [String: String],
         history: [String],
         commandRegistry: [String: AnyBuiltinCommand],
-        enableGlobbing: Bool
+        enableGlobbing: Bool,
+        secretPolicy: SecretHandlingPolicy,
+        secretResolver: (any SecretReferenceResolving)?,
+        secretTracker: SecretExposureTracker?
     ) async -> CommandResult {
         var input = stdin
         var stderr = Data()
@@ -166,12 +181,15 @@ enum ShellExecutor {
             arguments: commandArgs,
             filesystem: filesystem,
             enableGlobbing: enableGlobbing,
+            secretPolicy: secretPolicy,
+            secretResolver: secretResolver,
             availableCommands: commandRegistry.keys.sorted(),
             commandRegistry: commandRegistry,
             history: history,
             currentDirectory: currentDirectory,
             environment: environment,
-            stdin: input
+            stdin: input,
+            secretTracker: secretTracker
         )
 
         let exitCode = await implementation.runCommand(&context, commandArgs)

@@ -25,25 +25,98 @@ public enum SessionLayout: Sendable {
     case rootOnly
 }
 
+public enum SecretHandlingPolicy: Sendable {
+    case off
+    case resolveAndRedact
+    case strict
+}
+
+public protocol SecretReferenceResolving: Sendable {
+    func resolveSecretReference(_ reference: String) async throws -> Data
+}
+
+public struct SecretRedactionReplacement: Sendable, Hashable {
+    public var secret: Data
+    public var replacement: Data
+
+    public init(secret: Data, replacement: Data) {
+        self.secret = secret
+        self.replacement = replacement
+    }
+}
+
+public protocol SecretOutputRedacting: Sendable {
+    func redact(
+        data: Data,
+        replacements: [SecretRedactionReplacement]
+    ) -> Data
+}
+
+public struct DefaultSecretOutputRedactor: SecretOutputRedacting {
+    public static let defaultReplacement = Data("<redacted:secret>".utf8)
+
+    public init() {}
+
+    public func redact(
+        data: Data,
+        replacements: [SecretRedactionReplacement]
+    ) -> Data {
+        guard !data.isEmpty, !replacements.isEmpty else {
+            return data
+        }
+
+        let deduplicated = Set(replacements)
+            .filter { !$0.secret.isEmpty }
+            .sorted {
+                if $0.secret.count == $1.secret.count {
+                    return $0.secret.lexicographicallyPrecedes($1.secret)
+                }
+                return $0.secret.count > $1.secret.count
+            }
+
+        guard !deduplicated.isEmpty else {
+            return data
+        }
+
+        var redacted = data
+        for replacement in deduplicated {
+            redacted = redacted.replacingOccurrences(
+                of: replacement.secret,
+                with: replacement.replacement
+            )
+        }
+        return redacted
+    }
+}
+
 public struct SessionOptions: Sendable {
     public var filesystem: any ShellFilesystem
     public var layout: SessionLayout
     public var initialEnvironment: [String: String]
     public var enableGlobbing: Bool
     public var maxHistory: Int
+    public var secretPolicy: SecretHandlingPolicy
+    public var secretResolver: (any SecretReferenceResolving)?
+    public var secretOutputRedactor: any SecretOutputRedacting
 
     public init(
         filesystem: any ShellFilesystem = ReadWriteFilesystem(),
         layout: SessionLayout = .unixLike,
         initialEnvironment: [String: String] = [:],
         enableGlobbing: Bool = true,
-        maxHistory: Int = 1_000
+        maxHistory: Int = 1_000,
+        secretPolicy: SecretHandlingPolicy = .off,
+        secretResolver: (any SecretReferenceResolving)? = nil,
+        secretOutputRedactor: any SecretOutputRedacting = DefaultSecretOutputRedactor()
     ) {
         self.filesystem = filesystem
         self.layout = layout
         self.initialEnvironment = initialEnvironment
         self.enableGlobbing = enableGlobbing
         self.maxHistory = maxHistory
+        self.secretPolicy = secretPolicy
+        self.secretResolver = secretResolver
+        self.secretOutputRedactor = secretOutputRedactor
     }
 }
 
@@ -96,5 +169,50 @@ public struct DirectoryEntry: Sendable {
     public init(name: String, info: FileInfo) {
         self.name = name
         self.info = info
+    }
+}
+
+actor SecretExposureTracker {
+    private var replacements: Set<SecretRedactionReplacement> = []
+
+    func record(secret: Data, replacement: Data?) {
+        guard !secret.isEmpty else {
+            return
+        }
+
+        let output = replacement ?? DefaultSecretOutputRedactor.defaultReplacement
+        replacements.insert(
+            SecretRedactionReplacement(secret: secret, replacement: output)
+        )
+    }
+
+    func snapshot() -> [SecretRedactionReplacement] {
+        Array(replacements)
+    }
+}
+
+private extension Data {
+    func replacingOccurrences(of target: Data, with replacement: Data) -> Data {
+        guard !target.isEmpty else {
+            return self
+        }
+
+        var output = Data()
+        var searchRangeStart = startIndex
+        let end = endIndex
+
+        while searchRangeStart < end,
+              let range = self.range(
+                  of: target,
+                  options: [],
+                  in: searchRangeStart..<end
+              ) {
+            output.append(self[searchRangeStart..<range.lowerBound])
+            output.append(replacement)
+            searchRangeStart = range.upperBound
+        }
+
+        output.append(self[searchRangeStart..<end])
+        return output
     }
 }

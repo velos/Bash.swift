@@ -10,12 +10,27 @@ enum SecretsTestSupport {
         return url
     }
 
-    static func makeSession() async throws -> (session: BashSession, root: URL) {
+    static func makeSession(
+        options: SessionOptions = SessionOptions(filesystem: ReadWriteFilesystem(), layout: .unixLike)
+    ) async throws -> (session: BashSession, root: URL) {
         await Secrets.setRuntime(InMemorySecretsRuntime.shared)
         let root = try makeTempDirectory()
-        let session = try await BashSession(rootDirectory: root)
+        let session = try await BashSession(rootDirectory: root, options: options)
         await session.registerSecrets()
         return (session, root)
+    }
+
+    static func makeSecretAwareSession(
+        policy: SecretHandlingPolicy
+    ) async throws -> (session: BashSession, root: URL) {
+        try await makeSession(
+            options: SessionOptions(
+                filesystem: ReadWriteFilesystem(),
+                layout: .unixLike,
+                secretPolicy: policy,
+                secretResolver: BashSecretsReferenceResolver()
+            )
+        )
     }
 
     static func removeDirectory(_ url: URL) {

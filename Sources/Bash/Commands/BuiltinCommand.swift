@@ -6,6 +6,8 @@ public struct CommandContext: Sendable {
     public let arguments: [String]
     public let filesystem: any ShellFilesystem
     public let enableGlobbing: Bool
+    public let secretPolicy: SecretHandlingPolicy
+    public let secretResolver: (any SecretReferenceResolving)?
     public let availableCommands: [String]
     public let commandRegistry: [String: AnyBuiltinCommand]
     public let history: [String]
@@ -15,12 +17,15 @@ public struct CommandContext: Sendable {
     public var stdin: Data
     public var stdout: Data
     public var stderr: Data
+    let secretTracker: SecretExposureTracker?
 
     public init(
         commandName: String,
         arguments: [String],
         filesystem: any ShellFilesystem,
         enableGlobbing: Bool,
+        secretPolicy: SecretHandlingPolicy = .off,
+        secretResolver: (any SecretReferenceResolving)? = nil,
         availableCommands: [String],
         commandRegistry: [String: AnyBuiltinCommand],
         history: [String],
@@ -30,10 +35,48 @@ public struct CommandContext: Sendable {
         stdout: Data = Data(),
         stderr: Data = Data()
     ) {
+        self.init(
+            commandName: commandName,
+            arguments: arguments,
+            filesystem: filesystem,
+            enableGlobbing: enableGlobbing,
+            secretPolicy: secretPolicy,
+            secretResolver: secretResolver,
+            availableCommands: availableCommands,
+            commandRegistry: commandRegistry,
+            history: history,
+            currentDirectory: currentDirectory,
+            environment: environment,
+            stdin: stdin,
+            stdout: stdout,
+            stderr: stderr,
+            secretTracker: nil
+        )
+    }
+
+    init(
+        commandName: String,
+        arguments: [String],
+        filesystem: any ShellFilesystem,
+        enableGlobbing: Bool,
+        secretPolicy: SecretHandlingPolicy,
+        secretResolver: (any SecretReferenceResolving)?,
+        availableCommands: [String],
+        commandRegistry: [String: AnyBuiltinCommand],
+        history: [String],
+        currentDirectory: String,
+        environment: [String: String],
+        stdin: Data,
+        stdout: Data = Data(),
+        stderr: Data = Data(),
+        secretTracker: SecretExposureTracker?
+    ) {
         self.commandName = commandName
         self.arguments = arguments
         self.filesystem = filesystem
         self.enableGlobbing = enableGlobbing
+        self.secretPolicy = secretPolicy
+        self.secretResolver = secretResolver
         self.availableCommands = availableCommands
         self.commandRegistry = commandRegistry
         self.history = history
@@ -42,6 +85,7 @@ public struct CommandContext: Sendable {
         self.stdin = stdin
         self.stdout = stdout
         self.stderr = stderr
+        self.secretTracker = secretTracker
     }
 
     public mutating func writeStdout(_ string: String) {
@@ -58,6 +102,66 @@ public struct CommandContext: Sendable {
 
     public func environmentValue(_ key: String) -> String {
         environment[key] ?? ""
+    }
+
+    public mutating func registerSensitiveValue(
+        _ value: Data,
+        replacement: Data? = nil
+    ) async {
+        guard let tracker = secretTracker else {
+            return
+        }
+
+        await tracker.record(secret: value, replacement: replacement)
+    }
+
+    public mutating func registerSensitiveValue(
+        _ value: String,
+        replacement: String? = nil
+    ) async {
+        await registerSensitiveValue(
+            Data(value.utf8),
+            replacement: replacement.map { Data($0.utf8) }
+        )
+    }
+
+    public mutating func resolveSecretReferenceIfEnabled(
+        _ reference: String
+    ) async throws -> Data? {
+        switch secretPolicy {
+        case .off:
+            return nil
+        case .resolveAndRedact, .strict:
+            guard let resolver = secretResolver else {
+                throw ShellError.unsupported("secret resolver is not configured")
+            }
+
+            let value = try await resolver.resolveSecretReference(reference)
+            await registerSensitiveValue(
+                value,
+                replacement: Data(reference.utf8)
+            )
+            return value
+        }
+    }
+
+    public mutating func resolveSecretReference(
+        _ reference: String
+    ) async throws -> Data {
+        if let resolved = try await resolveSecretReferenceIfEnabled(reference) {
+            return resolved
+        }
+
+        guard let resolver = secretResolver else {
+            throw ShellError.unsupported("secret resolver is not configured")
+        }
+
+        let value = try await resolver.resolveSecretReference(reference)
+        await registerSensitiveValue(
+            value,
+            replacement: Data(reference.utf8)
+        )
+        return value
     }
 
     public mutating func runSubcommand(
@@ -93,12 +197,15 @@ public struct CommandContext: Sendable {
             arguments: commandArgs,
             filesystem: filesystem,
             enableGlobbing: enableGlobbing,
+            secretPolicy: secretPolicy,
+            secretResolver: secretResolver,
             availableCommands: availableCommands,
             commandRegistry: commandRegistry,
             history: history,
             currentDirectory: currentDirectory,
             environment: environment,
-            stdin: stdin ?? self.stdin
+            stdin: stdin ?? self.stdin,
+            secretTracker: secretTracker
         )
 
         let exitCode = await implementation.runCommand(&childContext, commandArgs)

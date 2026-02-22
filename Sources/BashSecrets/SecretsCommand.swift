@@ -276,6 +276,12 @@ private extension SecretsCommand {
                 error: SecretsError.invalidInput("cannot combine --reveal with --json")
             )
         }
+        if options.reveal, context.secretPolicy == .strict {
+            return emitError(
+                context: &context,
+                error: SecretsError.invalidInput("get --reveal is blocked by strict secret policy")
+            )
+        }
 
         let locator: SecretLocator
         do {
@@ -301,7 +307,24 @@ private extension SecretsCommand {
         }
 
         if options.reveal {
-            context.stdout.append(fetched.value ?? Data())
+            guard let value = fetched.value else {
+                return emitError(
+                    context: &context,
+                    error: SecretsError.runtimeFailure(
+                        "secret value missing for service '\(locator.service)' and account '\(locator.account)'"
+                    )
+                )
+            }
+
+            if context.secretPolicy != .off {
+                let reference = SecretReference(locator: fetched.metadata.locator).stringValue
+                await context.registerSensitiveValue(
+                    value,
+                    replacement: Data(reference.utf8)
+                )
+            }
+
+            context.stdout.append(value)
             return 0
         }
 
@@ -388,34 +411,44 @@ private extension SecretsCommand {
         }
 
         var ephemeralEnvironment = context.environment
-        let runtime = await SecretsRuntimeRegistry.shared.currentRuntime()
         for binding in invocation.bindings {
-            let locator: SecretLocator
-            guard let reference = SecretReference(string: binding.reference) else {
-                return emitError(
-                    context: &context,
-                    error: SecretsError.invalidReference(binding.reference)
-                )
-            }
-            locator = reference.locator
-
-            let fetched: SecretFetchResult
-            do {
-                fetched = try await runtime.getGenericPassword(
-                    locator: locator,
-                    revealValue: true
-                )
-            } catch {
-                return emitError(context: &context, error: error)
-            }
-
-            guard let data = fetched.value else {
-                return emitError(
-                    context: &context,
-                    error: SecretsError.runtimeFailure(
-                        "secret value missing for service '\(locator.service)' and account '\(locator.account)'"
+            let data: Data
+            if context.secretPolicy == .off {
+                let locator: SecretLocator
+                guard let reference = SecretReference(string: binding.reference) else {
+                    return emitError(
+                        context: &context,
+                        error: SecretsError.invalidReference(binding.reference)
                     )
-                )
+                }
+                locator = reference.locator
+
+                let fetched: SecretFetchResult
+                do {
+                    let runtime = await SecretsRuntimeRegistry.shared.currentRuntime()
+                    fetched = try await runtime.getGenericPassword(
+                        locator: locator,
+                        revealValue: true
+                    )
+                } catch {
+                    return emitError(context: &context, error: error)
+                }
+
+                guard let value = fetched.value else {
+                    return emitError(
+                        context: &context,
+                        error: SecretsError.runtimeFailure(
+                            "secret value missing for service '\(locator.service)' and account '\(locator.account)'"
+                        )
+                    )
+                }
+                data = value
+            } else {
+                do {
+                    data = try await context.resolveSecretReference(binding.reference)
+                } catch {
+                    return emitError(context: &context, error: error)
+                }
             }
 
             guard let value = String(data: data, encoding: .utf8) else {

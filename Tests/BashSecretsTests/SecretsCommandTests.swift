@@ -153,4 +153,40 @@ struct SecretsCommandTests {
         let deleted = try await Secrets.deleteReference(reference)
         #expect(deleted)
     }
+
+    @Test("strict policy blocks secrets get --reveal")
+    func strictPolicyBlocksReveal() async throws {
+        let (session, root) = try await SecretsTestSupport.makeSecretAwareSession(policy: .strict)
+        defer { SecretsTestSupport.removeDirectory(root) }
+
+        let put = await session.run(
+            "secrets put --service strict-service --account strict-account",
+            stdin: Data("strict-secret".utf8)
+        )
+        #expect(put.exitCode == 0)
+        let reference = put.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let reveal = await session.run("secrets get --reveal \(reference)")
+        #expect(reveal.exitCode == 2)
+        #expect(reveal.stderrString.contains("blocked by strict secret policy"))
+    }
+
+    @Test("resolve and redact policy masks command output")
+    func resolveAndRedactPolicyMasksOutput() async throws {
+        let (session, root) = try await SecretsTestSupport.makeSecretAwareSession(policy: .resolveAndRedact)
+        defer { SecretsTestSupport.removeDirectory(root) }
+
+        let secretValue = "masked-secret-\(UUID().uuidString)"
+        let put = await session.run(
+            "secrets put --service masked-service --account masked-account",
+            stdin: Data(secretValue.utf8)
+        )
+        #expect(put.exitCode == 0)
+        let reference = put.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let run = await session.run("secrets run --env API_TOKEN=\(reference) -- printenv API_TOKEN")
+        #expect(run.exitCode == 0)
+        #expect(run.stdoutString == "\(reference)\n")
+        #expect(!run.stdoutString.contains(secretValue))
+    }
 }

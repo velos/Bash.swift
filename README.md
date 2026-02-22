@@ -142,6 +142,23 @@ let ref = try await Secrets.putGenericPassword(
 let secretValue = try await Secrets.resolveReference(ref)
 ```
 
+For secret-aware command execution/redaction inside `BashSession`, configure a resolver and policy:
+
+```swift
+let options = SessionOptions(
+    filesystem: ReadWriteFilesystem(),
+    layout: .unixLike,
+    secretPolicy: .strict,
+    secretResolver: BashSecretsReferenceResolver()
+)
+let session = try await BashSession(rootDirectory: root, options: options)
+```
+
+Policies:
+- `.off`: no automatic secret-reference resolution/redaction in builtins
+- `.resolveAndRedact`: resolve refs (where supported) and redact/replace secrets in output
+- `.strict`: like `.resolveAndRedact`, plus blocks high-risk flows like `secrets get --reveal`
+
 ## Public API
 
 ### `BashSession`
@@ -179,6 +196,9 @@ public struct SessionOptions {
     public var initialEnvironment: [String: String]
     public var enableGlobbing: Bool
     public var maxHistory: Int
+    public var secretPolicy: SecretHandlingPolicy
+    public var secretResolver: (any SecretReferenceResolving)?
+    public var secretOutputRedactor: any SecretOutputRedacting
 }
 ```
 
@@ -188,6 +208,9 @@ Defaults:
 - `initialEnvironment`: `[:]`
 - `enableGlobbing`: `true`
 - `maxHistory`: `1000`
+- `secretPolicy`: `.off`
+- `secretResolver`: `nil`
+- `secretOutputRedactor`: `DefaultSecretOutputRedactor()`
 
 Available filesystem implementations:
 - `ReadWriteFilesystem`: root-jail wrapper over real disk I/O.
@@ -390,6 +413,8 @@ All implemented commands support `--help`.
 | --- | --- |
 | `curl` | URL argument; `-s`, `-S`, `-i`, `-I`, `-f`, `-L`, `-v`, `-X <method>`, `-H <header>...`, `-A <ua>`, `-e <referer>`, `-u <user:pass>`, `-b <cookie|@file|file>`, `-c <cookie-jar-file>`, `-d/--data <value>...`, `--data-raw <value>...`, `--data-binary <value>...`, `--data-urlencode <value>...`, `-T <file>`, `-F <name=value|name=@file>`, `-o <file>`, `-O`, `-w <format>`, `-m <seconds>`, `--connect-timeout <seconds>`, `--max-redirs <count>`; supports `data:`, `file:`, and HTTP(S) URLs (`file:` is scoped to the shell filesystem root) |
 | `html-to-markdown` | `-b/--bullet <marker>`, `-c/--code <fence>`, `-r/--hr <rule>`, `--heading-style <atx|setext>`; input from file or stdin; strips `script/style/footer` blocks; supports nested lists and Markdown table rendering |
+
+When `SessionOptions.secretPolicy` is `.resolveAndRedact` or `.strict`, `curl` resolves `secretref:v1:...` tokens in headers/body arguments and output redaction replaces resolved values with their reference tokens.
 
 ## Command Behaviors and Notes
 
