@@ -51,4 +51,36 @@ struct SQLite3ExecutionTests {
         #expect(query.exitCode != 0)
         #expect(query.stderrString.contains("no such table"))
     }
+
+    @Test("unquoted SQL tokens after database are treated as SQL")
+    func unquotedSQLTokensAfterDatabase() async throws {
+        let (session, root) = try await SQLiteTestSupport.makeReadWriteSession()
+        defer { SQLiteTestSupport.removeDirectory(root) }
+
+        let create = await session.run("sqlite3 app.db create table items(v integer)")
+        #expect(create.exitCode == 0)
+
+        let insert = await session.run("sqlite3 app.db insert into items values (7)")
+        #expect(insert.exitCode == 0)
+
+        let query = await session.run("sqlite3 app.db select v from items")
+        #expect(query.exitCode == 0)
+        #expect(query.stdoutString == "7\n")
+    }
+
+    @Test("shell accepts trailing semicolon after sqlite command")
+    func shellAcceptsTrailingSemicolonAfterSQLiteCommand() async throws {
+        let (session, root) = try await SQLiteTestSupport.makeReadWriteSession()
+        defer { SQLiteTestSupport.removeDirectory(root) }
+
+        let create = await session.run("sqlite3 users.db \"create table users(id integer primary key, name text)\";")
+        #expect(create.exitCode == 0)
+
+        let insert = await session.run("sqlite3 users.db \"insert into users(name) values ('Alice')\";")
+        #expect(insert.exitCode == 0)
+
+        let query = await session.run("sqlite3 users.db \"select name from users\";")
+        #expect(query.exitCode == 0)
+        #expect(query.stdoutString == "Alice\n")
+    }
 }

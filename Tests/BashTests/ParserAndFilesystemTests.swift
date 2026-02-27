@@ -47,6 +47,22 @@ struct ParserAndFilesystemTests {
         #expect(parsed.segments[2].connector == .sequence)
     }
 
+    @Test("parser treats newlines as sequence separators")
+    func parserTreatsNewlinesAsSequenceSeparators() throws {
+        let parsed = try ShellParser.parse("echo one\necho two")
+        #expect(parsed.segments.count == 2)
+        #expect(parsed.segments[0].connector == nil)
+        #expect(parsed.segments[1].connector == .sequence)
+    }
+
+    @Test("parser ignores shell comments")
+    func parserIgnoresShellComments() throws {
+        let parsed = try ShellParser.parse("echo one # comment\necho two")
+        #expect(parsed.segments.count == 2)
+        #expect(parsed.segments[0].connector == nil)
+        #expect(parsed.segments[1].connector == .sequence)
+    }
+
     @Test("parser rejects trailing chain operator")
     func parserRejectsTrailingChainOperator() {
         do {
@@ -55,6 +71,14 @@ struct ParserAndFilesystemTests {
         } catch {
             // expected
         }
+    }
+
+    @Test("parser allows trailing semicolon")
+    func parserAllowsTrailingSemicolon() throws {
+        let parsed = try ShellParser.parse("echo hi;")
+        #expect(parsed.segments.count == 1)
+        #expect(parsed.segments[0].connector == nil)
+        #expect(parsed.segments[0].pipeline.count == 1)
     }
 
     @Test("default unix-like layout is created")

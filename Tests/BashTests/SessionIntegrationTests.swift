@@ -77,6 +77,23 @@ struct SessionIntegrationTests {
         #expect(result.stdoutString == "yes\nok\n")
     }
 
+    @Test("newline separators and comments")
+    func newlineSeparatorsAndComments() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let multiline = await session.run(
+            """
+            echo one
+            # skip this line
+            echo two # trailing comment
+            echo three#literal
+            """
+        )
+        #expect(multiline.exitCode == 0)
+        #expect(multiline.stdoutString == "one\ntwo\nthree#literal\n")
+    }
+
     @Test("unknown command returns 127")
     func unknownCommandReturns127() async throws {
         let (session, root) = try await TestSupport.makeSession()
@@ -103,6 +120,42 @@ struct SessionIntegrationTests {
         #expect(merged.exitCode != 0)
         #expect(merged.stdoutString.contains("does-not-exist"))
         #expect(merged.stderrString == "")
+    }
+
+    @Test("extended redirection operators")
+    func extendedRedirectionOperators() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let stdoutAlias = await session.run("echo hello 1> out.txt")
+        #expect(stdoutAlias.exitCode == 0)
+
+        let out = await session.run("cat out.txt")
+        #expect(out.exitCode == 0)
+        #expect(out.stdoutString == "hello\n")
+
+        _ = await session.run("ls does-not-exist 2>> err.txt")
+        _ = await session.run("ls does-not-exist 2>> err.txt")
+        let err = await session.run("cat err.txt")
+        let repeatedErrors = err.stdoutString
+            .split(separator: "\n")
+            .filter { $0.contains("does-not-exist") }
+            .count
+        #expect(repeatedErrors == 2)
+
+        let both = await session.run("ls does-not-exist &> combined.txt")
+        #expect(both.exitCode != 0)
+        #expect(both.stdoutString.isEmpty)
+        #expect(both.stderrString.isEmpty)
+
+        let combined = await session.run("cat combined.txt")
+        #expect(combined.stdoutString.contains("does-not-exist"))
+
+        let appendBoth = await session.run("echo done &>> combined.txt")
+        #expect(appendBoth.exitCode == 0)
+
+        let combinedAfterAppend = await session.run("cat combined.txt")
+        #expect(combinedAfterAppend.stdoutString.hasSuffix("done\n"))
     }
 
     @Test("stdin redirection")

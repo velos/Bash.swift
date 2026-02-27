@@ -219,7 +219,7 @@ enum ShellExecutor {
                     result.stderr.append(Data("\(target): \(error)\n".utf8))
                     result.exitCode = 1
                 }
-            case .stderrTruncate:
+            case .stderrTruncate, .stderrAppend:
                 guard let targetWord = redirection.target else { continue }
                 let target = await firstExpansion(
                     word: targetWord,
@@ -231,7 +231,11 @@ enum ShellExecutor {
 
                 do {
                     let path = PathUtils.normalize(path: target, currentDirectory: currentDirectory)
-                    try await filesystem.writeFile(path: path, data: result.stderr, append: false)
+                    try await filesystem.writeFile(
+                        path: path,
+                        data: result.stderr,
+                        append: redirection.type == .stderrAppend
+                    )
                     result.stderr.removeAll(keepingCapacity: true)
                 } catch {
                     result.stderr.append(Data("\(target): \(error)\n".utf8))
@@ -240,6 +244,32 @@ enum ShellExecutor {
             case .stderrToStdout:
                 result.stdout.append(result.stderr)
                 result.stderr.removeAll(keepingCapacity: true)
+            case .stdoutAndErrTruncate, .stdoutAndErrAppend:
+                guard let targetWord = redirection.target else { continue }
+                let target = await firstExpansion(
+                    word: targetWord,
+                    filesystem: filesystem,
+                    currentDirectory: currentDirectory,
+                    environment: environment,
+                    enableGlobbing: enableGlobbing
+                )
+
+                do {
+                    let path = PathUtils.normalize(path: target, currentDirectory: currentDirectory)
+                    var combined = Data()
+                    combined.append(result.stdout)
+                    combined.append(result.stderr)
+                    try await filesystem.writeFile(
+                        path: path,
+                        data: combined,
+                        append: redirection.type == .stdoutAndErrAppend
+                    )
+                    result.stdout.removeAll(keepingCapacity: true)
+                    result.stderr.removeAll(keepingCapacity: true)
+                } catch {
+                    result.stderr.append(Data("\(target): \(error)\n".utf8))
+                    result.exitCode = 1
+                }
             case .stdin:
                 continue
             }

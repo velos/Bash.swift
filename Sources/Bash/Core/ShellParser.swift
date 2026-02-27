@@ -5,7 +5,10 @@ enum RedirectionType: Sendable {
     case stdoutTruncate
     case stdoutAppend
     case stderrTruncate
+    case stderrAppend
     case stderrToStdout
+    case stdoutAndErrTruncate
+    case stdoutAndErrAppend
 }
 
 struct Redirection: Sendable {
@@ -50,7 +53,8 @@ enum ShellParser {
 
             guard index < tokens.count else { break }
 
-            switch tokens[index] {
+            let operatorToken = tokens[index]
+            switch operatorToken {
             case .semicolon:
                 nextConnector = .sequence
                 index += 1
@@ -65,6 +69,9 @@ enum ShellParser {
             }
 
             if index == tokens.count {
+                if case .semicolon = operatorToken {
+                    break
+                }
                 throw ShellError.parserError("trailing chain operator")
             }
         }
@@ -113,9 +120,21 @@ enum ShellParser {
                 index += 1
                 let target = try takeRedirectionTarget(tokens: tokens, index: &index)
                 redirections.append(Redirection(type: .stderrTruncate, target: target))
+            case .redirErrAppend:
+                index += 1
+                let target = try takeRedirectionTarget(tokens: tokens, index: &index)
+                redirections.append(Redirection(type: .stderrAppend, target: target))
             case .redirErrToOut:
                 index += 1
                 redirections.append(Redirection(type: .stderrToStdout, target: nil))
+            case .redirAllOut:
+                index += 1
+                let target = try takeRedirectionTarget(tokens: tokens, index: &index)
+                redirections.append(Redirection(type: .stdoutAndErrTruncate, target: target))
+            case .redirAllAppend:
+                index += 1
+                let target = try takeRedirectionTarget(tokens: tokens, index: &index)
+                redirections.append(Redirection(type: .stdoutAndErrAppend, target: target))
             case .pipe, .semicolon, .andIf, .orIf:
                 if words.isEmpty {
                     throw ShellError.parserError("expected command before operator")

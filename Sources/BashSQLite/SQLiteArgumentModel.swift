@@ -33,7 +33,7 @@ enum SQLiteArgumentModel {
     static let helpText = """
     OVERVIEW: Execute SQL statements against a SQLite database
 
-    USAGE: sqlite3 [OPTION]... [DATABASE [SQL]]
+    USAGE: sqlite3 [OPTION]... [DATABASE [SQL...]]
 
     OPTIONS:
       -csv                  set output mode to csv
@@ -54,6 +54,9 @@ enum SQLiteArgumentModel {
       -version              print SQLite library version
       --                    stop parsing options
       -h, --help            show help
+
+    NOTE:
+      Interactive mode is not supported. Provide SQL as arguments or via stdin.
 
     """
 
@@ -179,10 +182,6 @@ enum SQLiteArgumentModel {
             }
         }
 
-        if positionals.count > 2 {
-            return .usageError("sqlite3: too many positional arguments\n")
-        }
-
         let database: String
         let sql: String?
         switch positionals.count {
@@ -194,7 +193,7 @@ enum SQLiteArgumentModel {
             sql = nil
         default:
             database = positionals[0]
-            sql = positionals[1]
+            sql = positionals.dropFirst().joined(separator: " ")
         }
 
         return .success(

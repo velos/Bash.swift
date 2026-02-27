@@ -35,7 +35,10 @@ enum LexToken: Sendable {
     case redirAppend
     case redirIn
     case redirErrOut
+    case redirErrAppend
     case redirErrToOut
+    case redirAllOut
+    case redirAllAppend
 }
 
 enum ShellLexer {
@@ -60,8 +63,34 @@ enum ShellLexer {
             parts.removeAll(keepingCapacity: true)
         }
 
+        func emitSequenceSeparatorIfNeeded() {
+            guard let last = tokens.last else { return }
+            switch last {
+            case .word:
+                tokens.append(.semicolon)
+            case .pipe, .andIf, .orIf, .semicolon,
+                 .redirOut, .redirAppend, .redirIn, .redirErrOut, .redirErrAppend,
+                 .redirErrToOut, .redirAllOut, .redirAllAppend:
+                break
+            }
+        }
+
         while i < input.endIndex {
             let char = input[i]
+
+            if currentQuote == .none, char == "#" && parts.isEmpty && currentPart.isEmpty {
+                while i < input.endIndex, input[i] != "\n" {
+                    i = input.index(after: i)
+                }
+                continue
+            }
+
+            if currentQuote == .none, char == "\n" {
+                flushWord()
+                emitSequenceSeparatorIfNeeded()
+                i = input.index(after: i)
+                continue
+            }
 
             if currentQuote == .none,
                let opToken = try readOperator(input: input, index: &i, currentWordIsEmpty: parts.isEmpty && currentPart.isEmpty) {
@@ -70,7 +99,7 @@ enum ShellLexer {
                 continue
             }
 
-            if currentQuote == .none, char.isWhitespace {
+            if currentQuote == .none, char.isWhitespace, char != "\n" {
                 flushWord()
                 i = input.index(after: i)
                 continue
@@ -136,9 +165,34 @@ enum ShellLexer {
             return .redirErrToOut
         }
 
+        if currentWordIsEmpty, tail.hasPrefix("&>>") {
+            index = input.index(index, offsetBy: 3)
+            return .redirAllAppend
+        }
+
+        if currentWordIsEmpty, tail.hasPrefix("&>") {
+            index = input.index(index, offsetBy: 2)
+            return .redirAllOut
+        }
+
+        if currentWordIsEmpty, tail.hasPrefix("2>>") {
+            index = input.index(index, offsetBy: 3)
+            return .redirErrAppend
+        }
+
         if currentWordIsEmpty, tail.hasPrefix("2>") {
             index = input.index(index, offsetBy: 2)
             return .redirErrOut
+        }
+
+        if currentWordIsEmpty, tail.hasPrefix("1>>") {
+            index = input.index(index, offsetBy: 3)
+            return .redirAppend
+        }
+
+        if currentWordIsEmpty, tail.hasPrefix("1>") {
+            index = input.index(index, offsetBy: 2)
+            return .redirOut
         }
 
         if tail.hasPrefix(">>") {
