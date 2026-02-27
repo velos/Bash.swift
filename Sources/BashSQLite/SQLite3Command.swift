@@ -42,6 +42,13 @@ public struct SQLite3Command: BuiltinCommand {
             mainScript = stdin.isEmpty ? nil : stdin
         }
 
+        if invocation.commandScripts.isEmpty, mainScript == nil {
+            context.writeStderr(
+                "sqlite3: interactive mode is not supported; pass SQL as arguments or via stdin\n"
+            )
+            return 2
+        }
+
         let outcome = await SQLiteEngine.execute(
             invocation: invocation,
             mainScript: mainScript,

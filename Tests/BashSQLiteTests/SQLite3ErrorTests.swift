@@ -15,6 +15,16 @@ struct SQLite3ErrorTests {
         #expect(result.stderrString.contains("unknown option"))
     }
 
+    @Test("running without SQL input returns guidance instead of silent success")
+    func noSQLInputReturnsGuidance() async throws {
+        let (session, root) = try await SQLiteTestSupport.makeReadWriteSession()
+        defer { SQLiteTestSupport.removeDirectory(root) }
+
+        let result = await session.run("sqlite3 app.db")
+        #expect(result.exitCode == 2)
+        #expect(result.stderrString.contains("interactive mode is not supported"))
+    }
+
     @Test("readonly rejects write statements")
     func readonlyRejectsWriteStatements() async throws {
         let (session, root) = try await SQLiteTestSupport.makeReadWriteSession()

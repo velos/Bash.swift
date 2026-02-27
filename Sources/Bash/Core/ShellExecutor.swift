@@ -15,7 +15,11 @@ enum ShellExecutor {
         environment: [String: String],
         history: [String],
         commandRegistry: [String: AnyBuiltinCommand],
-        enableGlobbing: Bool
+        enableGlobbing: Bool,
+        secretPolicy: SecretHandlingPolicy,
+        secretResolver: (any SecretReferenceResolving)?,
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
     ) async -> ShellExecutionResult {
         var currentDirectory = currentDirectory
         var environment = environment
@@ -45,7 +49,11 @@ enum ShellExecutor {
                 environment: &environment,
                 history: history,
                 commandRegistry: commandRegistry,
-                enableGlobbing: enableGlobbing
+                enableGlobbing: enableGlobbing,
+                secretPolicy: secretPolicy,
+                secretResolver: secretResolver,
+                secretTracker: secretTracker,
+                secretOutputRedactor: secretOutputRedactor
             )
 
             aggregateOut.append(segmentResult.stdout)
@@ -83,7 +91,11 @@ enum ShellExecutor {
         environment: inout [String: String],
         history: [String],
         commandRegistry: [String: AnyBuiltinCommand],
-        enableGlobbing: Bool
+        enableGlobbing: Bool,
+        secretPolicy: SecretHandlingPolicy,
+        secretResolver: (any SecretReferenceResolving)?,
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
     ) async -> CommandResult {
         var nextInput = initialInput
         var aggregateStderr = Data()
@@ -98,7 +110,11 @@ enum ShellExecutor {
                 environment: &environment,
                 history: history,
                 commandRegistry: commandRegistry,
-                enableGlobbing: enableGlobbing
+                enableGlobbing: enableGlobbing,
+                secretPolicy: secretPolicy,
+                secretResolver: secretResolver,
+                secretTracker: secretTracker,
+                secretOutputRedactor: secretOutputRedactor
             )
 
             aggregateStderr.append(commandResult.stderr)
@@ -119,7 +135,11 @@ enum ShellExecutor {
         environment: inout [String: String],
         history: [String],
         commandRegistry: [String: AnyBuiltinCommand],
-        enableGlobbing: Bool
+        enableGlobbing: Bool,
+        secretPolicy: SecretHandlingPolicy,
+        secretResolver: (any SecretReferenceResolving)?,
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
     ) async -> CommandResult {
         var input = stdin
         var stderr = Data()
@@ -166,12 +186,15 @@ enum ShellExecutor {
             arguments: commandArgs,
             filesystem: filesystem,
             enableGlobbing: enableGlobbing,
+            secretPolicy: secretPolicy,
+            secretResolver: secretResolver,
             availableCommands: commandRegistry.keys.sorted(),
             commandRegistry: commandRegistry,
             history: history,
             currentDirectory: currentDirectory,
             environment: environment,
-            stdin: input
+            stdin: input,
+            secretTracker: secretTracker
         )
 
         let exitCode = await implementation.runCommand(&context, commandArgs)
@@ -195,13 +218,22 @@ enum ShellExecutor {
 
                 do {
                     let path = PathUtils.normalize(path: target, currentDirectory: currentDirectory)
-                    try await filesystem.writeFile(path: path, data: result.stdout, append: redirection.type == .stdoutAppend)
+                    let redactedOutput = await redactForExternalOutput(
+                        result.stdout,
+                        secretTracker: secretTracker,
+                        secretOutputRedactor: secretOutputRedactor
+                    )
+                    try await filesystem.writeFile(
+                        path: path,
+                        data: redactedOutput,
+                        append: redirection.type == .stdoutAppend
+                    )
                     result.stdout.removeAll(keepingCapacity: true)
                 } catch {
                     result.stderr.append(Data("\(target): \(error)\n".utf8))
                     result.exitCode = 1
                 }
-            case .stderrTruncate:
+            case .stderrTruncate, .stderrAppend:
                 guard let targetWord = redirection.target else { continue }
                 let target = await firstExpansion(
                     word: targetWord,
@@ -213,7 +245,16 @@ enum ShellExecutor {
 
                 do {
                     let path = PathUtils.normalize(path: target, currentDirectory: currentDirectory)
-                    try await filesystem.writeFile(path: path, data: result.stderr, append: false)
+                    let redactedStderr = await redactForExternalOutput(
+                        result.stderr,
+                        secretTracker: secretTracker,
+                        secretOutputRedactor: secretOutputRedactor
+                    )
+                    try await filesystem.writeFile(
+                        path: path,
+                        data: redactedStderr,
+                        append: redirection.type == .stderrAppend
+                    )
                     result.stderr.removeAll(keepingCapacity: true)
                 } catch {
                     result.stderr.append(Data("\(target): \(error)\n".utf8))
@@ -222,6 +263,42 @@ enum ShellExecutor {
             case .stderrToStdout:
                 result.stdout.append(result.stderr)
                 result.stderr.removeAll(keepingCapacity: true)
+            case .stdoutAndErrTruncate, .stdoutAndErrAppend:
+                guard let targetWord = redirection.target else { continue }
+                let target = await firstExpansion(
+                    word: targetWord,
+                    filesystem: filesystem,
+                    currentDirectory: currentDirectory,
+                    environment: environment,
+                    enableGlobbing: enableGlobbing
+                )
+
+                do {
+                    let path = PathUtils.normalize(path: target, currentDirectory: currentDirectory)
+                    let redactedStdout = await redactForExternalOutput(
+                        result.stdout,
+                        secretTracker: secretTracker,
+                        secretOutputRedactor: secretOutputRedactor
+                    )
+                    let redactedStderr = await redactForExternalOutput(
+                        result.stderr,
+                        secretTracker: secretTracker,
+                        secretOutputRedactor: secretOutputRedactor
+                    )
+                    var combined = Data()
+                    combined.append(redactedStdout)
+                    combined.append(redactedStderr)
+                    try await filesystem.writeFile(
+                        path: path,
+                        data: combined,
+                        append: redirection.type == .stdoutAndErrAppend
+                    )
+                    result.stdout.removeAll(keepingCapacity: true)
+                    result.stderr.removeAll(keepingCapacity: true)
+                } catch {
+                    result.stderr.append(Data("\(target): \(error)\n".utf8))
+                    result.exitCode = 1
+                }
             case .stdin:
                 continue
             }
@@ -388,5 +465,25 @@ enum ShellExecutor {
         }
 
         return result
+    }
+
+    private static func redactForExternalOutput(
+        _ data: Data,
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
+    ) async -> Data {
+        guard let secretTracker else {
+            return data
+        }
+
+        let replacements = await secretTracker.snapshot()
+        guard !replacements.isEmpty else {
+            return data
+        }
+
+        return secretOutputRedactor.redact(
+            data: data,
+            replacements: replacements
+        )
     }
 }

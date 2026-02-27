@@ -40,6 +40,12 @@ private enum GitEngineError: Error {
     case runtime(String)
 }
 
+private struct CloneSource {
+    let sourceURL: String
+    let projection: GitRepositoryProjection?
+    let virtualPath: String?
+}
+
 private struct GitRepositoryProjection {
     let virtualRoot: String
     let temporaryDirectory: URL
@@ -76,6 +82,9 @@ private enum GitEngineLibgit2 {
 
             case "init":
                 return try await runInit(arguments: remaining, context: &context)
+
+            case "clone":
+                return try await runClone(arguments: remaining, context: &context)
 
             case "status":
                 return try await runStatus(arguments: remaining, context: &context)
@@ -118,6 +127,7 @@ private enum GitEngineLibgit2 {
 
         SUBCOMMANDS:
           init [path]
+          clone <repository> [directory]
           status [--short]
           add [-A|--all] <paths...>
           commit -m <message>
@@ -157,6 +167,59 @@ private enum GitEngineLibgit2 {
         try await projection.syncBack(filesystem: context.filesystem)
         let normalized = targetPath == "/" ? "/" : targetPath + "/"
         return GitExecutionResult(stdout: "Initialized empty Git repository in \(normalized).git/\n", exitCode: 0)
+    }
+
+    private static func runClone(arguments: [String], context: inout CommandContext) async throws -> GitExecutionResult {
+        let parsed = try parseCloneArguments(arguments)
+        let source = try await resolveCloneSource(repository: parsed.repository, context: context)
+        defer { source.projection?.cleanup() }
+
+        let destinationArgument = parsed.directory ?? defaultCloneDirectoryName(
+            repositoryArgument: parsed.repository,
+            localRepositoryPath: source.virtualPath
+        )
+        let destinationPath = context.resolvePath(destinationArgument)
+        let destinationName = basename(of: destinationPath)
+
+        if destinationName.isEmpty || destinationName == "/" || destinationName == "." || destinationName == ".." {
+            throw GitEngineError.runtime("invalid destination path '\(destinationArgument)'")
+        }
+        if await context.filesystem.exists(path: destinationPath) {
+            throw GitEngineError.runtime("destination path '\(destinationPath)' already exists")
+        }
+
+        let parentPath = parent(of: destinationPath)
+        guard await context.filesystem.exists(path: parentPath) else {
+            throw GitEngineError.runtime("destination parent '\(parentPath)' does not exist")
+        }
+
+        let parentInfo = try await context.filesystem.stat(path: parentPath)
+        guard parentInfo.isDirectory else {
+            throw GitEngineError.runtime("destination parent '\(parentPath)' is not a directory")
+        }
+
+        let projection = try await GitFilesystemProjection.materialize(
+            virtualRoot: parentPath,
+            filesystem: context.filesystem
+        )
+        defer { projection.cleanup() }
+
+        let localDestination = projection.localRoot.appendingPathComponent(destinationName, isDirectory: true)
+
+        try withLibgit2 {
+            var repository: OpaquePointer?
+            try withCString(path: source.sourceURL) { sourcePath in
+                try withCString(path: localDestination.path) { destinationPath in
+                    try check(git_clone(&repository, sourcePath, destinationPath, nil), action: "clone repository")
+                }
+            }
+            if let repository {
+                git_repository_free(repository)
+            }
+        }
+
+        try await projection.syncBack(filesystem: context.filesystem)
+        return GitExecutionResult(stderr: "Cloning into '\(destinationName)'...\n", exitCode: 0)
     }
 
     private static func runStatus(arguments: [String], context: inout CommandContext) async throws -> GitExecutionResult {
@@ -435,6 +498,106 @@ private enum GitEngineLibgit2 {
         )
     }
 
+    private static func parseCloneArguments(_ arguments: [String]) throws -> (repository: String, directory: String?) {
+        var positionals: [String] = []
+        var parsingOptions = true
+
+        for argument in arguments {
+            if parsingOptions && argument == "--" {
+                parsingOptions = false
+                continue
+            }
+            if parsingOptions && argument.hasPrefix("-") {
+                throw GitEngineError.usage("usage: git clone <repository> [directory]\n")
+            }
+            positionals.append(argument)
+        }
+
+        guard positionals.count == 1 || positionals.count == 2 else {
+            throw GitEngineError.usage("usage: git clone <repository> [directory]\n")
+        }
+        return (positionals[0], positionals.count == 2 ? positionals[1] : nil)
+    }
+
+    private static func resolveCloneSource(repository: String, context: CommandContext) async throws -> CloneSource {
+        if isRemoteRepository(repository) {
+            return CloneSource(
+                sourceURL: repository,
+                projection: nil,
+                virtualPath: nil
+            )
+        }
+
+        let resolvedPath = context.resolvePath(repository)
+        guard await context.filesystem.exists(path: resolvedPath) else {
+            throw GitEngineError.runtime("repository '\(repository)' does not exist")
+        }
+
+        let info = try await context.filesystem.stat(path: resolvedPath)
+        guard info.isDirectory else {
+            throw GitEngineError.runtime("repository '\(repository)' is not a directory")
+        }
+
+        let projection = try await GitFilesystemProjection.materialize(
+            virtualRoot: resolvedPath,
+            filesystem: context.filesystem
+        )
+
+        return CloneSource(
+            sourceURL: projection.localRoot.path,
+            projection: projection,
+            virtualPath: resolvedPath
+        )
+    }
+
+    private static func defaultCloneDirectoryName(repositoryArgument: String, localRepositoryPath: String?) -> String {
+        if let localRepositoryPath {
+            var name = basename(of: localRepositoryPath)
+            if name.hasSuffix(".git") {
+                name.removeLast(4)
+            }
+            return name.isEmpty ? "repository" : name
+        }
+
+        var candidate = repositoryArgument.trimmingCharacters(in: .whitespacesAndNewlines)
+        while candidate.hasSuffix("/") {
+            candidate.removeLast()
+        }
+
+        if let slashIndex = candidate.lastIndex(of: "/") {
+            candidate = String(candidate[candidate.index(after: slashIndex)...])
+        }
+
+        if candidate.hasSuffix(".git") {
+            candidate.removeLast(4)
+        }
+
+        if let colonIndex = candidate.lastIndex(of: ":"), colonIndex != candidate.startIndex {
+            let tail = String(candidate[candidate.index(after: colonIndex)...])
+            if !tail.isEmpty {
+                candidate = tail
+            }
+        }
+
+        return candidate.isEmpty ? "repository" : candidate
+    }
+
+    private static func isRemoteRepository(_ repository: String) -> Bool {
+        if repository.contains("://") {
+            return true
+        }
+        if repository.hasPrefix("git@") {
+            return true
+        }
+        guard let colonIndex = repository.firstIndex(of: ":") else {
+            return false
+        }
+        if let slashIndex = repository.firstIndex(of: "/"), slashIndex < colonIndex {
+            return false
+        }
+        return repository[..<colonIndex].contains("@")
+    }
+
     private static func parseCommitMessage(_ arguments: [String]) throws -> String {
         var message: String?
         var index = 0
@@ -706,6 +869,27 @@ private enum GitEngineLibgit2 {
 
     private static func normalizeAbsolute(_ path: String) -> String {
         let parts = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        if parts.isEmpty {
+            return "/"
+        }
+        return "/" + parts.joined(separator: "/")
+    }
+
+    private static func basename(of path: String) -> String {
+        let normalized = normalizeAbsolute(path)
+        if normalized == "/" {
+            return "/"
+        }
+        return normalized.split(separator: "/", omittingEmptySubsequences: true).last.map(String.init) ?? ""
+    }
+
+    private static func parent(of path: String) -> String {
+        let normalized = normalizeAbsolute(path)
+        if normalized == "/" {
+            return "/"
+        }
+        var parts = normalized.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        _ = parts.popLast()
         if parts.isEmpty {
             return "/"
         }
