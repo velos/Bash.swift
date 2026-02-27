@@ -88,6 +88,63 @@ struct GitCommandTests {
         #expect(log.stdoutString.contains(" a"))
     }
 
+    @Test("clone local repository")
+    func cloneLocalRepository() async throws {
+        let (session, root) = try await GitTestSupport.makeReadWriteSession()
+        defer { GitTestSupport.removeDirectory(root) }
+
+        _ = await session.run("mkdir seed")
+        _ = await session.run("cd seed")
+        _ = await session.run("git init")
+        _ = await session.run("echo hello > README.md")
+        _ = await session.run("git add README.md")
+
+        let commit = await session.run("git commit -m \"seed\"")
+        #expect(commit.exitCode == 0)
+
+        _ = await session.run("cd ..")
+
+        let clone = await session.run("git clone seed cloned")
+        #expect(clone.exitCode == 0)
+        #expect(clone.stderrString.contains("Cloning into 'cloned'"))
+
+        _ = await session.run("cd cloned")
+
+        let revParse = await session.run("git rev-parse --is-inside-work-tree")
+        #expect(revParse.exitCode == 0)
+        #expect(revParse.stdoutString == "true\n")
+
+        let readme = await session.run("cat README.md")
+        #expect(readme.exitCode == 0)
+        #expect(readme.stdoutString == "hello\n")
+
+        let log = await session.run("git log --oneline -n 1")
+        #expect(log.exitCode == 0)
+        #expect(log.stdoutString.contains("seed"))
+    }
+
+    @Test("clone fails when destination exists")
+    func cloneFailsWhenDestinationExists() async throws {
+        let (session, root) = try await GitTestSupport.makeReadWriteSession()
+        defer { GitTestSupport.removeDirectory(root) }
+
+        _ = await session.run("mkdir seed")
+        _ = await session.run("cd seed")
+        _ = await session.run("git init")
+        _ = await session.run("echo hello > README.md")
+        _ = await session.run("git add README.md")
+
+        let commit = await session.run("git commit -m \"seed\"")
+        #expect(commit.exitCode == 0)
+
+        _ = await session.run("cd ..")
+        _ = await session.run("mkdir cloned")
+
+        let clone = await session.run("git clone seed cloned")
+        #expect(clone.exitCode == 1)
+        #expect(clone.stderrString.contains("already exists"))
+    }
+
     @Test("rev-parse outside repository is fatal")
     func revParseOutsideRepository() async throws {
         let (session, root) = try await GitTestSupport.makeReadWriteSession()
