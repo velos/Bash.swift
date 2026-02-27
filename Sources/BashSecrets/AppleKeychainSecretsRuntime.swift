@@ -109,9 +109,17 @@ public struct AppleKeychainSecretsRuntime: SecretsRuntime {
         let service = attributes[kSecAttrService as String] as? String ?? locator.service
         let account = attributes[kSecAttrAccount as String] as? String ?? locator.account
         let label = attributes[kSecAttrLabel as String] as? String
+        let scopedKeychain: String?
+        if let rawScope = attributes[kSecAttrGeneric as String] as? Data,
+           let decodedScope = String(data: rawScope, encoding: .utf8),
+           !decodedScope.isEmpty {
+            scopedKeychain = decodedScope
+        } else {
+            scopedKeychain = locator.keychain
+        }
 
         return SecretMetadata(
-            locator: SecretLocator(service: service, account: account, keychain: locator.keychain),
+            locator: SecretLocator(service: service, account: account, keychain: scopedKeychain),
             label: label
         )
     }
@@ -138,11 +146,19 @@ public struct AppleKeychainSecretsRuntime: SecretsRuntime {
     }
 
     private func baseQuery(locator: SecretLocator) -> [String: Any] {
-        [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: locator.service,
             kSecAttrAccount as String: locator.account,
         ]
+
+        // Keep optional keychain routing metadata in the item/query identity
+        // so same service/account can be scoped independently.
+        if let keychain = locator.keychain, !keychain.isEmpty {
+            query[kSecAttrGeneric as String] = Data(keychain.utf8)
+        }
+
+        return query
     }
 
     private func statusError(

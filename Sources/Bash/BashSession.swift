@@ -68,7 +68,8 @@ public final actor BashSession {
                 enableGlobbing: enableGlobbing,
                 secretPolicy: secretPolicy,
                 secretResolver: secretResolver,
-                secretTracker: secretTracker
+                secretTracker: secretTracker,
+                secretOutputRedactor: secretOutputRedactor
             )
 
             var result = execution.result

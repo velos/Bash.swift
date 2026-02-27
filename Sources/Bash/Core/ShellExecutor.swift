@@ -18,7 +18,8 @@ enum ShellExecutor {
         enableGlobbing: Bool,
         secretPolicy: SecretHandlingPolicy,
         secretResolver: (any SecretReferenceResolving)?,
-        secretTracker: SecretExposureTracker?
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
     ) async -> ShellExecutionResult {
         var currentDirectory = currentDirectory
         var environment = environment
@@ -51,7 +52,8 @@ enum ShellExecutor {
                 enableGlobbing: enableGlobbing,
                 secretPolicy: secretPolicy,
                 secretResolver: secretResolver,
-                secretTracker: secretTracker
+                secretTracker: secretTracker,
+                secretOutputRedactor: secretOutputRedactor
             )
 
             aggregateOut.append(segmentResult.stdout)
@@ -92,7 +94,8 @@ enum ShellExecutor {
         enableGlobbing: Bool,
         secretPolicy: SecretHandlingPolicy,
         secretResolver: (any SecretReferenceResolving)?,
-        secretTracker: SecretExposureTracker?
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
     ) async -> CommandResult {
         var nextInput = initialInput
         var aggregateStderr = Data()
@@ -110,7 +113,8 @@ enum ShellExecutor {
                 enableGlobbing: enableGlobbing,
                 secretPolicy: secretPolicy,
                 secretResolver: secretResolver,
-                secretTracker: secretTracker
+                secretTracker: secretTracker,
+                secretOutputRedactor: secretOutputRedactor
             )
 
             aggregateStderr.append(commandResult.stderr)
@@ -134,7 +138,8 @@ enum ShellExecutor {
         enableGlobbing: Bool,
         secretPolicy: SecretHandlingPolicy,
         secretResolver: (any SecretReferenceResolving)?,
-        secretTracker: SecretExposureTracker?
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
     ) async -> CommandResult {
         var input = stdin
         var stderr = Data()
@@ -213,7 +218,16 @@ enum ShellExecutor {
 
                 do {
                     let path = PathUtils.normalize(path: target, currentDirectory: currentDirectory)
-                    try await filesystem.writeFile(path: path, data: result.stdout, append: redirection.type == .stdoutAppend)
+                    let redactedOutput = await redactForExternalOutput(
+                        result.stdout,
+                        secretTracker: secretTracker,
+                        secretOutputRedactor: secretOutputRedactor
+                    )
+                    try await filesystem.writeFile(
+                        path: path,
+                        data: redactedOutput,
+                        append: redirection.type == .stdoutAppend
+                    )
                     result.stdout.removeAll(keepingCapacity: true)
                 } catch {
                     result.stderr.append(Data("\(target): \(error)\n".utf8))
@@ -231,9 +245,14 @@ enum ShellExecutor {
 
                 do {
                     let path = PathUtils.normalize(path: target, currentDirectory: currentDirectory)
+                    let redactedStderr = await redactForExternalOutput(
+                        result.stderr,
+                        secretTracker: secretTracker,
+                        secretOutputRedactor: secretOutputRedactor
+                    )
                     try await filesystem.writeFile(
                         path: path,
-                        data: result.stderr,
+                        data: redactedStderr,
                         append: redirection.type == .stderrAppend
                     )
                     result.stderr.removeAll(keepingCapacity: true)
@@ -256,9 +275,19 @@ enum ShellExecutor {
 
                 do {
                     let path = PathUtils.normalize(path: target, currentDirectory: currentDirectory)
+                    let redactedStdout = await redactForExternalOutput(
+                        result.stdout,
+                        secretTracker: secretTracker,
+                        secretOutputRedactor: secretOutputRedactor
+                    )
+                    let redactedStderr = await redactForExternalOutput(
+                        result.stderr,
+                        secretTracker: secretTracker,
+                        secretOutputRedactor: secretOutputRedactor
+                    )
                     var combined = Data()
-                    combined.append(result.stdout)
-                    combined.append(result.stderr)
+                    combined.append(redactedStdout)
+                    combined.append(redactedStderr)
                     try await filesystem.writeFile(
                         path: path,
                         data: combined,
@@ -436,5 +465,25 @@ enum ShellExecutor {
         }
 
         return result
+    }
+
+    private static func redactForExternalOutput(
+        _ data: Data,
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
+    ) async -> Data {
+        guard let secretTracker else {
+            return data
+        }
+
+        let replacements = await secretTracker.snapshot()
+        guard !replacements.isEmpty else {
+            return data
+        }
+
+        return secretOutputRedactor.redact(
+            data: data,
+            replacements: replacements
+        )
     }
 }
