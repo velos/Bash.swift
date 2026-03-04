@@ -1,0 +1,47 @@
+{
+  "": {
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/master.swiftdeps"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/BashSecrets/AppleKeychainSecretsRuntime.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/AppleKeychainSecretsRuntime.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/AppleKeychainSecretsRuntime.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/AppleKeychainSecretsRuntime~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/AppleKeychainSecretsRuntime.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/AppleKeychainSecretsRuntime.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/BashSecrets/BashSecretsReferenceResolver.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/BashSecretsReferenceResolver.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/BashSecretsReferenceResolver.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/BashSecretsReferenceResolver~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/BashSecretsReferenceResolver.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/BashSecretsReferenceResolver.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/BashSecrets/BashSession+Secrets.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/BashSession+Secrets.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/BashSession+Secrets.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/BashSession+Secrets~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/BashSession+Secrets.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/BashSession+Secrets.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/BashSecrets/SecretsCommand.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/SecretsCommand.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/SecretsCommand.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/SecretsCommand~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/SecretsCommand.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/SecretsCommand.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/BashSecrets/SecretsReference.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/SecretsReference.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/SecretsReference.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/SecretsReference~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/SecretsReference.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/SecretsReference.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/BashSecrets/SecretsRuntime.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/SecretsRuntime.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/SecretsRuntime.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/SecretsRuntime~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/SecretsRuntime.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecrets.build/SecretsRuntime.dia"
+  }
+}

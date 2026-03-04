@@ -1,0 +1,19 @@
+{
+  "": {
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecretsTests.build/master.swiftdeps"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Tests/BashSecretsTests/SecretsCommandTests.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecretsTests.build/SecretsCommandTests.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecretsTests.build/SecretsCommandTests.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecretsTests.build/SecretsCommandTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecretsTests.build/SecretsCommandTests.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecretsTests.build/SecretsCommandTests.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Tests/BashSecretsTests/TestSupport.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecretsTests.build/TestSupport.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecretsTests.build/TestSupport.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecretsTests.build/TestSupport~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecretsTests.build/TestSupport.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSecretsTests.build/TestSupport.dia"
+  }
+}

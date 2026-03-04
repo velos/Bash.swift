@@ -1,0 +1,264 @@
+{
+  "": {
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/master.swiftdeps"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/BashSession.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/BashSession.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/BashSession.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/BashSession~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/BashSession.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/BashSession.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/BuiltinCommand.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/BuiltinCommand.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/BuiltinCommand.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/BuiltinCommand~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/BuiltinCommand.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/BuiltinCommand.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/CommandSupport.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/CommandSupport.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/CommandSupport.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/CommandSupport~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/CommandSupport.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/CommandSupport.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/CompressionCommands.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/CompressionCommands.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/CompressionCommands.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/CompressionCommands~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/CompressionCommands.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/CompressionCommands.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/DataCommands.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/DataCommands.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/DataCommands.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/DataCommands~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/DataCommands.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/DataCommands.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/DefaultCommands.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/DefaultCommands.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/DefaultCommands.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/DefaultCommands~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/DefaultCommands.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/DefaultCommands.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/File/BasicFileCommands.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/BasicFileCommands.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/BasicFileCommands.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/BasicFileCommands~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/BasicFileCommands.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/BasicFileCommands.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/File/CopyMoveLinkCommands.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/CopyMoveLinkCommands.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/CopyMoveLinkCommands.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/CopyMoveLinkCommands~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/CopyMoveLinkCommands.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/CopyMoveLinkCommands.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/File/DirectoryCommands.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/DirectoryCommands.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/DirectoryCommands.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/DirectoryCommands~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/DirectoryCommands.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/DirectoryCommands.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/File/MetadataCommands.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/MetadataCommands.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/MetadataCommands.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/MetadataCommands~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/MetadataCommands.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/MetadataCommands.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/File/TreeCommand.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/TreeCommand.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/TreeCommand.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/TreeCommand~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/TreeCommand.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/TreeCommand.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/FormattingCommands.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/FormattingCommands.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/FormattingCommands.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/FormattingCommands~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/FormattingCommands.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/FormattingCommands.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/NavigationCommands.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/NavigationCommands.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/NavigationCommands.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/NavigationCommands~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/NavigationCommands.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/NavigationCommands.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/Network/HtmlToMarkdownCommand.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/HtmlToMarkdownCommand.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/HtmlToMarkdownCommand.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/HtmlToMarkdownCommand~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/HtmlToMarkdownCommand.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/HtmlToMarkdownCommand.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/NetworkCommands.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/NetworkCommands.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/NetworkCommands.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/NetworkCommands~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/NetworkCommands.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/NetworkCommands.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/StructuredQueryEngine.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/StructuredQueryEngine.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/StructuredQueryEngine.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/StructuredQueryEngine~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/StructuredQueryEngine.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/StructuredQueryEngine.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/Text/AwkCommand.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/AwkCommand.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/AwkCommand.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/AwkCommand~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/AwkCommand.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/AwkCommand.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/Text/DiffCommand.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/DiffCommand.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/DiffCommand.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/DiffCommand~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/DiffCommand.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/DiffCommand.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/Text/LineCommands.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/LineCommands.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/LineCommands.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/LineCommands~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/LineCommands.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/LineCommands.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/Text/SearchCommands.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SearchCommands.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SearchCommands.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SearchCommands~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SearchCommands.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SearchCommands.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/Text/SedCommand.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SedCommand.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SedCommand.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SedCommand~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SedCommand.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SedCommand.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/Text/TransformCommands.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/TransformCommands.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/TransformCommands.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/TransformCommands~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/TransformCommands.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/TransformCommands.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/Text/XargsCommand.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/XargsCommand.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/XargsCommand.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/XargsCommand~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/XargsCommand.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/XargsCommand.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Commands/UtilityCommands.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/UtilityCommands.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/UtilityCommands.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/UtilityCommands~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/UtilityCommands.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/UtilityCommands.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Core/PathUtils.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/PathUtils.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/PathUtils.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/PathUtils~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/PathUtils.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/PathUtils.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Core/ShellExecutor.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ShellExecutor.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ShellExecutor.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ShellExecutor~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ShellExecutor.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ShellExecutor.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Core/ShellLexer.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ShellLexer.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ShellLexer.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ShellLexer~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ShellLexer.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ShellLexer.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Core/ShellParser.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ShellParser.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ShellParser.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ShellParser~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ShellParser.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ShellParser.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/FS/BookmarkStore.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/BookmarkStore.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/BookmarkStore.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/BookmarkStore~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/BookmarkStore.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/BookmarkStore.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/FS/InMemoryFilesystem.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/InMemoryFilesystem.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/InMemoryFilesystem.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/InMemoryFilesystem~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/InMemoryFilesystem.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/InMemoryFilesystem.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/FS/ReadWriteFilesystem.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ReadWriteFilesystem.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ReadWriteFilesystem.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ReadWriteFilesystem~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ReadWriteFilesystem.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ReadWriteFilesystem.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/FS/SandboxFilesystem.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SandboxFilesystem.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SandboxFilesystem.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SandboxFilesystem~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SandboxFilesystem.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SandboxFilesystem.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/FS/SecurityScopedFilesystem.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SecurityScopedFilesystem.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SecurityScopedFilesystem.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SecurityScopedFilesystem~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SecurityScopedFilesystem.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SecurityScopedFilesystem.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/FS/SessionConfigurableFilesystem.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SessionConfigurableFilesystem.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SessionConfigurableFilesystem.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SessionConfigurableFilesystem~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SessionConfigurableFilesystem.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/SessionConfigurableFilesystem.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/FS/ShellFilesystem.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ShellFilesystem.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ShellFilesystem.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ShellFilesystem~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ShellFilesystem.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/ShellFilesystem.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/FS/UserDefaultsBookmarkStore.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/UserDefaultsBookmarkStore.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/UserDefaultsBookmarkStore.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/UserDefaultsBookmarkStore~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/UserDefaultsBookmarkStore.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/UserDefaultsBookmarkStore.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Sources/Bash/Support/Types.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/Types.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/Types.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/Types~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/Types.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/Bash.build/Types.dia"
+  }
+}

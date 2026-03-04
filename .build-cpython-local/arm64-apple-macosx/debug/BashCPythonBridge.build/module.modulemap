@@ -1,0 +1,4 @@
+module BashCPythonBridge {
+    umbrella header "/Users/zac/Projects/collab/Bash.swift/Sources/BashCPythonBridge/include/BashCPythonBridge.h"
+    export *
+}

@@ -1,0 +1,51 @@
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Completions/BashCompletionsGenerator.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Completions/CompletionsGenerator.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Completions/FishCompletionsGenerator.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Completions/ZshCompletionsGenerator.swift
+'/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable Properties/Argument.swift'
+'/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable Properties/ArgumentDiscussion.swift'
+'/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable Properties/ArgumentHelp.swift'
+'/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable Properties/ArgumentVisibility.swift'
+'/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable Properties/CompletionKind.swift'
+'/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable Properties/Errors.swift'
+'/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable Properties/Flag.swift'
+'/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable Properties/NameSpecification.swift'
+'/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable Properties/Option.swift'
+'/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable Properties/OptionGroup.swift'
+'/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable Properties/ParentCommand.swift'
+'/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable Types/AsyncParsableCommand.swift'
+'/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable Types/CommandConfiguration.swift'
+'/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable Types/CommandGroup.swift'
+'/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable Types/EnumerableFlag.swift'
+'/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable Types/ExpressibleByArgument.swift'
+'/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable Types/ParsableArguments.swift'
+'/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable Types/ParsableCommand.swift'
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsing/ArgumentDecoder.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsing/ArgumentDefinition.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsing/ArgumentSet.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsing/CommandParser.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsing/InputKey.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsing/InputOrigin.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsing/Name.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsing/Parsed.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsing/ParsedValues.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsing/ParserError.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsing/SplitArguments.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Usage/DumpHelpGenerator.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Usage/HelpCommand.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Usage/HelpGenerator.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Usage/MessageInfo.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Usage/UsageGenerator.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Utilities/CollectionExtensions.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Utilities/Foundation.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Utilities/Mutex.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Utilities/Platform.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Utilities/SequenceExtensions.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Utilities/StringExtensions.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Utilities/SwiftExtensions.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Utilities/Tree.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Validators/CodingKeyValidator.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Validators/NonsenseFlagsValidator.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Validators/ParsableArgumentsValidation.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Validators/PositionalArgumentsValidator.swift
+/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/checkouts/swift-argument-parser/Sources/ArgumentParser/Validators/UniqueNamesValidator.swift

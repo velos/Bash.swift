@@ -1,0 +1,47 @@
+{
+  "": {
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/master.swiftdeps"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Tests/BashSQLiteTests/SQLite3ErrorTests.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3ErrorTests.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3ErrorTests.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3ErrorTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3ErrorTests.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3ErrorTests.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Tests/BashSQLiteTests/SQLite3ExecutionTests.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3ExecutionTests.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3ExecutionTests.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3ExecutionTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3ExecutionTests.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3ExecutionTests.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Tests/BashSQLiteTests/SQLite3FilesystemTests.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3FilesystemTests.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3FilesystemTests.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3FilesystemTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3FilesystemTests.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3FilesystemTests.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Tests/BashSQLiteTests/SQLite3OptionsTests.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3OptionsTests.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3OptionsTests.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3OptionsTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3OptionsTests.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3OptionsTests.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Tests/BashSQLiteTests/SQLite3OutputModesTests.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3OutputModesTests.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3OutputModesTests.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3OutputModesTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3OutputModesTests.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/SQLite3OutputModesTests.dia"
+  },
+  "/Users/zac/Projects/collab/Bash.swift/Tests/BashSQLiteTests/TestSupport.swift": {
+    "dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/TestSupport.d",
+    "object": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/TestSupport.swift.o",
+    "swiftmodule": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/TestSupport~partial.swiftmodule",
+    "swift-dependencies": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/TestSupport.swiftdeps",
+    "diagnostics": "/Users/zac/Projects/collab/Bash.swift/.build-cpython-local/arm64-apple-macosx/debug/BashSQLiteTests.build/TestSupport.dia"
+  }
+}
