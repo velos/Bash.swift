@@ -44,7 +44,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "CPython",
-            path: "Sources/BashPython/Frameworks/CPython.xcframework"
+            url: "https://github.com/zac/Bash.swift/releases/download/0.2.0/CPython.xcframework.zip",
+            checksum: "34ebd52fe88f7472b64f7dc8fa7cc2247293f18d747be117d1fbbb5822a78215"
         ),
         .target(
             name: "Bash",

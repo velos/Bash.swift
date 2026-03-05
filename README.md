@@ -53,6 +53,9 @@ Development of `Bash.swift` was approached very similarly to [just-bash](https:/
 dependencies: ["Bash", "BashSQLite", "BashPython", "BashGit", "BashSecrets"]
 ```
 
+`BashPython` uses a remote `CPython.xcframework` binary target hosted in this repo's GitHub Releases, so consumers do not
+need Git LFS to resolve it through SwiftPM.
+
 If you include optional products, remember to register their commands at runtime (`registerSQLite3`, `registerPython`, `registerGit`, `registerSecrets`).
 
 ## Platform Support
