@@ -44,8 +44,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "CPython",
-            url: "https://github.com/zac/Bash.swift/releases/download/0.2.0/CPython.xcframework.zip",
-            checksum: "34ebd52fe88f7472b64f7dc8fa7cc2247293f18d747be117d1fbbb5822a78215"
+            url: "https://github.com/zac/Bash.swift/releases/download/0.3.0/CPython.xcframework.zip",
+            checksum: "7be0ac87a289fffce6a560b282304da261a21384c2869cec6c60651e6b30b4c7"
         ),
         .target(
             name: "Bash",
@@ -72,8 +72,7 @@ let package = Package(
                     condition: .when(platforms: [.macOS, .iOS])
                 ),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
-            ],
-            exclude: ["Frameworks"]
+            ]
         ),
         .target(
             name: "BashCPythonBridge",

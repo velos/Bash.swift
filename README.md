@@ -54,7 +54,7 @@ dependencies: ["Bash", "BashSQLite", "BashPython", "BashGit", "BashSecrets"]
 ```
 
 `BashPython` uses a remote `CPython.xcframework` binary target hosted in this repo's GitHub Releases, so consumers do not
-need Git LFS to resolve it through SwiftPM.
+need Git LFS and the prebuilt CPython framework is not checked into the repository.
 
 If you include optional products, remember to register their commands at runtime (`registerSQLite3`, `registerPython`, `registerGit`, `registerSecrets`).
 
