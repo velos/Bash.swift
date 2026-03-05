@@ -31,6 +31,7 @@ enum LexToken: Sendable {
     case andIf
     case orIf
     case semicolon
+    case background
     case redirOut
     case redirAppend
     case redirIn
@@ -68,7 +69,7 @@ enum ShellLexer {
             switch last {
             case .word:
                 tokens.append(.semicolon)
-            case .pipe, .andIf, .orIf, .semicolon,
+            case .pipe, .andIf, .orIf, .semicolon, .background,
                  .redirOut, .redirAppend, .redirIn, .redirErrOut, .redirErrAppend,
                  .redirErrToOut, .redirAllOut, .redirAllAppend:
                 break
@@ -96,6 +97,14 @@ enum ShellLexer {
                let opToken = try readOperator(input: input, index: &i, currentWordIsEmpty: parts.isEmpty && currentPart.isEmpty) {
                 flushWord()
                 tokens.append(opToken)
+                continue
+            }
+
+            if currentQuote != .single,
+               char == "$",
+               let expansion = captureArithmeticExpansion(in: input, from: i) {
+                currentPart.append(expansion.raw)
+                i = expansion.endIndex
                 continue
             }
 
@@ -153,6 +162,49 @@ enum ShellLexer {
         return tokens
     }
 
+    private static func captureArithmeticExpansion(
+        in input: String,
+        from dollarIndex: String.Index
+    ) -> (raw: String, endIndex: String.Index)? {
+        let open = input.index(after: dollarIndex)
+        guard open < input.endIndex, input[open] == "(" else {
+            return nil
+        }
+
+        let secondOpen = input.index(after: open)
+        guard secondOpen < input.endIndex, input[secondOpen] == "(" else {
+            return nil
+        }
+
+        var depth = 1
+        var cursor = input.index(after: secondOpen)
+
+        while cursor < input.endIndex {
+            if input[cursor] == "(" {
+                let next = input.index(after: cursor)
+                if next < input.endIndex, input[next] == "(" {
+                    depth += 1
+                    cursor = input.index(after: next)
+                    continue
+                }
+            } else if input[cursor] == ")" {
+                let next = input.index(after: cursor)
+                if next < input.endIndex, input[next] == ")" {
+                    depth -= 1
+                    if depth == 0 {
+                        let end = input.index(after: next)
+                        return (raw: String(input[dollarIndex..<end]), endIndex: end)
+                    }
+                    cursor = input.index(after: next)
+                    continue
+                }
+            }
+            cursor = input.index(after: cursor)
+        }
+
+        return nil
+    }
+
     private static func readOperator(
         input: String,
         index: inout String.Index,
@@ -165,12 +217,12 @@ enum ShellLexer {
             return .redirErrToOut
         }
 
-        if currentWordIsEmpty, tail.hasPrefix("&>>") {
+        if tail.hasPrefix("&>>") {
             index = input.index(index, offsetBy: 3)
             return .redirAllAppend
         }
 
-        if currentWordIsEmpty, tail.hasPrefix("&>") {
+        if tail.hasPrefix("&>") {
             index = input.index(index, offsetBy: 2)
             return .redirAllOut
         }
@@ -218,6 +270,9 @@ enum ShellLexer {
         case ";":
             index = input.index(after: index)
             return .semicolon
+        case "&":
+            index = input.index(after: index)
+            return .background
         case ">":
             index = input.index(after: index)
             return .redirOut

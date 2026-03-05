@@ -54,6 +54,294 @@ struct SessionIntegrationTests {
         #expect(fallback.stdoutString == "fallback\n")
     }
 
+    @Test("command substitution writes evaluated output")
+    func commandSubstitutionWritesEvaluatedOutput() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let write = await session.run("echo $(pwd) > cwd.txt")
+        #expect(write.exitCode == 0)
+
+        let read = await session.run("cat cwd.txt")
+        #expect(read.exitCode == 0)
+        #expect(read.stdoutString == "/home/user\n")
+    }
+
+    @Test("pwd can map root-only virtual paths to a host workspace path")
+    func pwdCanMapRootOnlyVirtualPathsToAHostWorkspacePath() async throws {
+        let root = try TestSupport.makeTempDirectory()
+        defer { TestSupport.removeDirectory(root) }
+
+        let session = try await BashSession(
+            rootDirectory: root,
+            options: SessionOptions(
+                layout: .rootOnly,
+                initialEnvironment: ["BASHSWIFT_PWD_HOST_ROOT": root.path]
+            )
+        )
+
+        let top = await session.run("pwd")
+        #expect(top.exitCode == 0)
+        #expect(top.stdoutString == "\(root.path)\n")
+
+        let nested = await session.run("mkdir -p nested && cd nested && pwd")
+        #expect(nested.exitCode == 0)
+        #expect(nested.stdoutString == "\(root.path)/nested\n")
+    }
+
+    @Test("simple for loop executes and supports output redirection")
+    func simpleForLoopExecutesAndSupportsOutputRedirection() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let loop = await session.run("for i in 1 2 3; do echo $i; done > nums.txt")
+        #expect(loop.exitCode == 0)
+        #expect(loop.stdoutString.isEmpty)
+
+        let file = await session.run("cat nums.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "1\n2\n3\n")
+    }
+
+    @Test("newline for loop syntax executes")
+    func newlineForLoopSyntaxExecutes() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let loop = await session.run(
+            """
+            for i in 1 2 3
+            do
+              echo $i
+            done > nums_newline.txt
+            """
+        )
+        #expect(loop.exitCode == 0)
+
+        let file = await session.run("cat nums_newline.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "1\n2\n3\n")
+    }
+
+    @Test("for loop with empty list still applies redirection")
+    func forLoopWithEmptyListStillAppliesRedirection() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let loop = await session.run("for i in; do echo $i; done > empty.txt")
+        #expect(loop.exitCode == 0)
+
+        let exists = await session.run("cat empty.txt")
+        #expect(exists.exitCode == 0)
+
+        let size = await session.run("wc -c < empty.txt")
+        #expect(size.exitCode == 0)
+        #expect(size.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines) == "0")
+    }
+
+    @Test("for loop output can feed trailing pipeline")
+    func forLoopOutputCanFeedTrailingPipeline() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let loop = await session.run("for i in b a c; do echo $i; done | sort > vals.txt")
+        #expect(loop.exitCode == 0)
+
+        let file = await session.run("cat vals.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "a\nb\nc\n")
+    }
+
+    @Test("function definition can be invoked later in the same line")
+    func functionDefinitionCanBeInvokedLaterInTheSameLine() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run("greet(){ echo hi; }; greet > greet.txt")
+        #expect(result.exitCode == 0)
+
+        let file = await session.run("cat greet.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "hi\n")
+    }
+
+    @Test("function positional argument expansion")
+    func functionPositionalArgumentExpansion() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run("joiner(){ echo \"$1\"; }; joiner pass > arg.txt")
+        #expect(result.exitCode == 0)
+
+        let file = await session.run("cat arg.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "pass\n")
+    }
+
+    @Test("if then else blocks execute")
+    func ifThenElseBlocksExecute() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        _ = await session.run("touch flag.txt")
+        let result = await session.run("if test -f flag.txt; then echo yes > result.txt; else echo no > result.txt; fi")
+        #expect(result.exitCode == 0)
+
+        let file = await session.run("cat result.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "yes\n")
+    }
+
+    @Test("while loops with assignment and arithmetic expansion")
+    func whileLoopsWithAssignmentAndArithmeticExpansion() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run("i=1; while [ $i -le 3 ]; do echo $i; i=$((i+1)); done > while.txt")
+        #expect(result.exitCode == 0)
+
+        let file = await session.run("cat while.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "1\n2\n3\n")
+    }
+
+    @Test("if elif branches execute")
+    func ifElifBranchesExecute() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run(
+            "if false; then echo no > elif.txt; elif true; then echo elif-hit > elif.txt; else echo no > elif.txt; fi"
+        )
+        #expect(result.exitCode == 0)
+
+        let file = await session.run("cat elif.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "elif-hit\n")
+    }
+
+    @Test("until loops execute until condition becomes true")
+    func untilLoopsExecuteUntilConditionBecomesTrue() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run("i=1; until [ $i -gt 3 ]; do echo $i; i=$((i+1)); done > until.txt")
+        #expect(result.exitCode == 0)
+
+        let file = await session.run("cat until.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "1\n2\n3\n")
+    }
+
+    @Test("case statements with glob patterns execute")
+    func caseStatementsWithGlobPatternsExecute() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run(
+            "name=notes.md; case $name in *.md) echo md > case.txt ;; *.txt) echo txt > case.txt ;; *) echo other > case.txt ;; esac"
+        )
+        #expect(result.exitCode == 0)
+
+        let file = await session.run("cat case.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "md\n")
+    }
+
+    @Test("c-style for loops execute")
+    func cStyleForLoopsExecute() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run("for ((i=1; i<=3; i++)); do echo $i; done > cfor.txt")
+        #expect(result.exitCode == 0)
+
+        let file = await session.run("cat cfor.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "1\n2\n3\n")
+    }
+
+    @Test("function keyword form defines callable function")
+    func functionKeywordFormDefinesCallableFunction() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run("function greet { echo hi; }; greet > func_kw.txt")
+        #expect(result.exitCode == 0)
+
+        let file = await session.run("cat func_kw.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "hi\n")
+    }
+
+    @Test("local variables are scoped to function execution")
+    func localVariablesAreScopedToFunctionExecution() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run(
+            "x=outer; function show { local x=inner; echo $x; }; show > local_scope.txt; echo $x >> local_scope.txt"
+        )
+        #expect(result.exitCode == 0)
+
+        let file = await session.run("cat local_scope.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "inner\nouter\n")
+    }
+
+    @Test("arithmetic expansion supports rich operators")
+    func arithmeticExpansionSupportsRichOperators() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run(
+            "echo $((5 > 3)) > arith.txt; echo $((2 == 3)) >> arith.txt; echo $((1 && 0)) >> arith.txt; echo $((0 || 1)) >> arith.txt; echo $((5 & 3)) >> arith.txt; echo $((5 | 2)) >> arith.txt; echo $((5 ^ 1)) >> arith.txt; echo $((2 ** 8)) >> arith.txt"
+        )
+        #expect(result.exitCode == 0)
+
+        let file = await session.run("cat arith.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "1\n0\n0\n1\n1\n7\n4\n256\n")
+    }
+
+    @Test("direct positional all-args and count expansions")
+    func directPositionalAllArgsAndCountExpansions() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run("show(){ echo \"$@\"; echo \"$#\"; }; show one \"two words\" three > pos.txt")
+        #expect(result.exitCode == 0)
+
+        let file = await session.run("cat pos.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "one two words three\n3\n")
+    }
+
+    @Test("ln without -s keeps linked file content in sync")
+    func lnWithoutSymbolicFlagKeepsLinkedFileContentInSync() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        _ = await session.run("printf 'one\\n' > src.txt")
+        let linked = await session.run("ln src.txt dst.txt")
+        #expect(linked.exitCode == 0)
+
+        _ = await session.run("echo two >> src.txt")
+        let file = await session.run("cat dst.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "one\ntwo\n")
+    }
+
+    @Test("wget version output includes Wget marker")
+    func wgetVersionOutputIncludesWgetMarker() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run("wget --version | head -n 1")
+        #expect(result.exitCode == 0)
+        #expect(result.stdoutString.contains("Wget"))
+    }
+
     @Test("cd and pwd with semicolon chaining")
     func cdPwdAndSemicolonChaining() async throws {
         let (session, root) = try await TestSupport.makeSession()
@@ -316,6 +604,10 @@ struct SessionIntegrationTests {
         #expect(trDelete.exitCode == 0)
         #expect(trDelete.stdoutString == "aacc\n")
 
+        let trPosixClasses = await session.run("printf 'hi\\n' | tr '[:lower:]' '[:upper:]'")
+        #expect(trPosixClasses.exitCode == 0)
+        #expect(trPosixClasses.stdoutString == "HI\n")
+
         let trSqueeze = await session.run("printf 'aaabbbcc\\n' | tr -s ab")
         #expect(trSqueeze.exitCode == 0)
         #expect(trSqueeze.stdoutString == "abcc\n")
@@ -408,6 +700,126 @@ struct SessionIntegrationTests {
         let timeout = await session.run("timeout 0.01 sleep 0.2")
         #expect(timeout.exitCode == 124)
         #expect(timeout.stderrString.contains("timed out"))
+    }
+
+    @Test("background jobs can be listed and foregrounded")
+    func backgroundJobsCanBeListedAndForegrounded() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let launched = await session.run("sleep 0.05 &")
+        #expect(launched.exitCode == 0)
+        #expect(launched.stdoutString.contains("[1]"))
+
+        let jobs = await session.run("jobs")
+        #expect(jobs.exitCode == 0)
+        #expect(jobs.stdoutString.contains("[1]"))
+        #expect(jobs.stdoutString.contains("sleep 0.05"))
+
+        let foregrounded = await session.run("fg %1")
+        #expect(foregrounded.exitCode == 0)
+
+        let jobsAfter = await session.run("jobs")
+        #expect(jobsAfter.exitCode == 0)
+        #expect(jobsAfter.stdoutString.isEmpty)
+    }
+
+    @Test("foreground and wait return background output and status")
+    func foregroundAndWaitReturnBackgroundOutputAndStatus() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let echoed = await session.run("echo hi &")
+        #expect(echoed.exitCode == 0)
+
+        let fg = await session.run("fg")
+        #expect(fg.exitCode == 0)
+        #expect(fg.stdoutString == "hi\n")
+
+        _ = await session.run("timeout 0.01 sleep 0.05 &")
+        let waited = await session.run("wait")
+        #expect(waited.exitCode == 124)
+
+        let missing = await session.run("wait %1")
+        #expect(missing.exitCode == 127)
+        #expect(missing.stderrString.contains("no such job"))
+    }
+
+    @Test("last background pid expansion and ps lookup")
+    func lastBackgroundPIDExpansionAndPSLookup() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let launched = await session.run("sleep 0.05 & echo $!")
+        #expect(launched.exitCode == 0)
+
+        let lines = launched.stdoutString
+            .split(separator: "\n")
+            .map(String.init)
+        #expect(lines.count >= 2)
+        #expect(lines[0].contains("[1]"))
+
+        guard let pid = Int(lines[1]) else {
+            Issue.record("expected numeric pseudo pid in $! output")
+            return
+        }
+
+        let ps = await session.run("ps -p \(pid)")
+        #expect(ps.exitCode == 0)
+        #expect(ps.stdoutString.contains("PID JOB STAT COMMAND"))
+        #expect(ps.stdoutString.contains("sleep 0.05"))
+        #expect(ps.stdoutString.contains("\(pid)"))
+    }
+
+    @Test("kill by pid and job spec")
+    func killByPIDAndJobSpec() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let launched = await session.run("sleep 5 &")
+        #expect(launched.exitCode == 0)
+
+        let pieces = launched.stdoutString
+            .split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" })
+            .map(String.init)
+        guard pieces.count >= 2, let pid = Int(pieces[1]) else {
+            Issue.record("expected launch output to include pseudo pid")
+            return
+        }
+
+        let killByPID = await session.run("kill \(pid)")
+        #expect(killByPID.exitCode == 0)
+
+        let waited = await session.run("wait %1")
+        #expect(waited.exitCode == 143)
+
+        let relaunched = await session.run("sleep 5 &")
+        #expect(relaunched.exitCode == 0)
+
+        let relaunchPieces = relaunched.stdoutString
+            .split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" })
+            .map(String.init)
+        guard relaunchPieces.count >= 2 else {
+            Issue.record("expected second launch output to include job id and pseudo pid")
+            return
+        }
+
+        let rawJobToken = relaunchPieces[0]
+            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        guard let jobID = Int(rawJobToken) else {
+            Issue.record("expected second launch output to include numeric job id")
+            return
+        }
+
+        let killByJob = await session.run("kill %\(jobID)")
+        #expect(killByJob.exitCode == 0)
+
+        let waitJob = await session.run("wait %\(jobID)")
+        #expect(waitJob.exitCode == 143)
+
+        let signals = await session.run("kill -l")
+        #expect(signals.exitCode == 0)
+        #expect(signals.stdoutString.contains("TERM"))
     }
 
     @Test("diff command shows differences and status")

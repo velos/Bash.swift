@@ -58,10 +58,9 @@ struct LnCommand: BuiltinCommand {
             if options.symbolic {
                 try await context.filesystem.createSymlink(path: linkName, target: target)
             } else {
-                try await context.filesystem.copy(
-                    from: context.resolvePath(target),
-                    to: linkName,
-                    recursive: false
+                try await context.filesystem.createHardLink(
+                    path: linkName,
+                    target: context.resolvePath(target)
                 )
             }
             return 0
@@ -99,4 +98,3 @@ struct MvCommand: BuiltinCommand {
         }
     }
 }
-

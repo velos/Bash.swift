@@ -270,6 +270,29 @@ public final class InMemoryFilesystem: SessionConfigurableFilesystem, @unchecked
         parent.modificationDate = Date()
     }
 
+    public func createHardLink(path: String, target: String) async throws {
+        let normalized = PathUtils.normalize(path: path, currentDirectory: "/")
+        guard normalized != "/" else {
+            throw posixError(EEXIST)
+        }
+
+        let source = PathUtils.normalize(path: target, currentDirectory: "/")
+        let sourceNode = try node(at: source, followFinalSymlink: false)
+        if sourceNode.isDirectory {
+            throw posixError(EPERM)
+        }
+
+        let (parent, name) = try parentDirectoryAndName(for: normalized)
+        var children = try directoryChildren(of: parent)
+        if children[name] != nil {
+            throw posixError(EEXIST)
+        }
+
+        children[name] = sourceNode
+        parent.kind = .directory(children)
+        parent.modificationDate = Date()
+    }
+
     public func readSymlink(path: String) async throws -> String {
         let normalized = PathUtils.normalize(path: path, currentDirectory: "/")
         let node = try node(at: normalized, followFinalSymlink: false)

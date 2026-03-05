@@ -12,6 +12,7 @@ public protocol ShellFilesystem: AnyObject, Sendable {
     func move(from sourcePath: String, to destinationPath: String) async throws
     func copy(from sourcePath: String, to destinationPath: String, recursive: Bool) async throws
     func createSymlink(path: String, target: String) async throws
+    func createHardLink(path: String, target: String) async throws
     func readSymlink(path: String) async throws -> String
     func setPermissions(path: String, permissions: Int) async throws
     func resolveRealPath(path: String) async throws -> String

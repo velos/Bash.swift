@@ -149,6 +149,17 @@ public final class ReadWriteFilesystem: ShellFilesystem, @unchecked Sendable {
         try fileManager.createSymbolicLink(atPath: url.path, withDestinationPath: target)
     }
 
+    public func createHardLink(path: String, target: String) async throws {
+        let normalizedLink = PathUtils.normalize(path: path, currentDirectory: "/")
+        let normalizedTarget = PathUtils.normalize(path: target, currentDirectory: "/")
+        let linkURL = try creationURL(for: normalizedLink)
+        let targetURL = try existingURL(for: normalizedTarget)
+
+        let parent = linkURL.deletingLastPathComponent()
+        try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
+        try fileManager.linkItem(at: targetURL, to: linkURL)
+    }
+
     public func readSymlink(path: String) async throws -> String {
         let normalized = PathUtils.normalize(path: path, currentDirectory: "/")
         let url = try existingURL(for: normalized)

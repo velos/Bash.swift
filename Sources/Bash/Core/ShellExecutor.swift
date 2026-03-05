@@ -15,7 +15,9 @@ enum ShellExecutor {
         environment: [String: String],
         history: [String],
         commandRegistry: [String: AnyBuiltinCommand],
+        shellFunctions: [String: String],
         enableGlobbing: Bool,
+        jobControl: (any ShellJobControlling)?,
         secretPolicy: SecretHandlingPolicy,
         secretResolver: (any SecretReferenceResolving)?,
         secretTracker: SecretExposureTracker?,
@@ -41,6 +43,60 @@ enum ShellExecutor {
                 continue
             }
 
+            if segment.runInBackground {
+                let rendered = renderSegment(segment)
+                if let jobControl {
+                    let backgroundDirectory = currentDirectory
+                    let backgroundEnvironment = environment
+                    let backgroundHistory = history
+                    let backgroundRegistry = commandRegistry
+                    let backgroundFilesystem = filesystem
+                    let backgroundInput = stdin
+                    let backgroundEnableGlobbing = enableGlobbing
+                    let backgroundSecretPolicy = secretPolicy
+                    let backgroundSecretResolver = secretResolver
+                    let backgroundRedactor = secretOutputRedactor
+
+                    let launch = await jobControl.launchBackgroundJob(commandLine: rendered) {
+                        var isolatedDirectory = backgroundDirectory
+                        var isolatedEnvironment = backgroundEnvironment
+                        let localTracker = backgroundSecretPolicy == .off ? nil : SecretExposureTracker()
+
+                        var result = await executePipeline(
+                            commands: segment.pipeline,
+                            initialInput: backgroundInput,
+                            filesystem: backgroundFilesystem,
+                            currentDirectory: &isolatedDirectory,
+                            environment: &isolatedEnvironment,
+                            history: backgroundHistory,
+                            commandRegistry: backgroundRegistry,
+                            shellFunctions: shellFunctions,
+                            enableGlobbing: backgroundEnableGlobbing,
+                            jobControl: nil,
+                            secretPolicy: backgroundSecretPolicy,
+                            secretResolver: backgroundSecretResolver,
+                            secretTracker: localTracker,
+                            secretOutputRedactor: backgroundRedactor
+                        )
+
+                        if let localTracker {
+                            result = await redactCommandResult(
+                                result,
+                                secretTracker: localTracker,
+                                secretOutputRedactor: backgroundRedactor
+                            )
+                        }
+
+                        return result
+                    }
+
+                    environment["!"] = String(launch.pid)
+                    aggregateOut.append(Data("[\(launch.jobID)] \(launch.pid)\n".utf8))
+                    lastExitCode = 0
+                    continue
+                }
+            }
+
             let segmentResult = await executePipeline(
                 commands: segment.pipeline,
                 initialInput: stdin,
@@ -49,7 +105,9 @@ enum ShellExecutor {
                 environment: &environment,
                 history: history,
                 commandRegistry: commandRegistry,
+                shellFunctions: shellFunctions,
                 enableGlobbing: enableGlobbing,
+                jobControl: jobControl,
                 secretPolicy: secretPolicy,
                 secretResolver: secretResolver,
                 secretTracker: secretTracker,
@@ -91,7 +149,9 @@ enum ShellExecutor {
         environment: inout [String: String],
         history: [String],
         commandRegistry: [String: AnyBuiltinCommand],
+        shellFunctions: [String: String],
         enableGlobbing: Bool,
+        jobControl: (any ShellJobControlling)?,
         secretPolicy: SecretHandlingPolicy,
         secretResolver: (any SecretReferenceResolving)?,
         secretTracker: SecretExposureTracker?,
@@ -110,7 +170,9 @@ enum ShellExecutor {
                 environment: &environment,
                 history: history,
                 commandRegistry: commandRegistry,
+                shellFunctions: shellFunctions,
                 enableGlobbing: enableGlobbing,
+                jobControl: jobControl,
                 secretPolicy: secretPolicy,
                 secretResolver: secretResolver,
                 secretTracker: secretTracker,
@@ -135,7 +197,9 @@ enum ShellExecutor {
         environment: inout [String: String],
         history: [String],
         commandRegistry: [String: AnyBuiltinCommand],
+        shellFunctions: [String: String],
         enableGlobbing: Bool,
+        jobControl: (any ShellJobControlling)?,
         secretPolicy: SecretHandlingPolicy,
         secretResolver: (any SecretReferenceResolving)?,
         secretTracker: SecretExposureTracker?,
@@ -176,33 +240,60 @@ enum ShellExecutor {
 
         let commandArgs = Array(expandedWords.dropFirst())
 
-        guard let implementation = resolveCommand(named: commandName, registry: commandRegistry) else {
+        var result: CommandResult
+        if commandArgs.isEmpty, let assignment = parseAssignment(commandName) {
+            environment[assignment.name] = assignment.value
+            result = CommandResult(stdout: Data(), stderr: Data(), exitCode: 0)
+        } else if commandName == "local" {
+            result = executeLocalBuiltin(commandArgs, environment: &environment)
+        } else if let implementation = resolveCommand(named: commandName, registry: commandRegistry) {
+            var context = CommandContext(
+                commandName: commandName,
+                arguments: commandArgs,
+                filesystem: filesystem,
+                enableGlobbing: enableGlobbing,
+                secretPolicy: secretPolicy,
+                secretResolver: secretResolver,
+                availableCommands: commandRegistry.keys.sorted(),
+                commandRegistry: commandRegistry,
+                history: history,
+                currentDirectory: currentDirectory,
+                environment: environment,
+                stdin: input,
+                secretTracker: secretTracker,
+                jobControl: jobControl
+            )
+
+            let exitCode = await implementation.runCommand(&context, commandArgs)
+            result = CommandResult(
+                stdout: context.stdout,
+                stderr: context.stderr,
+                exitCode: exitCode
+            )
+            currentDirectory = context.currentDirectory
+            environment = context.environment
+        } else if let functionBody = shellFunctions[commandName] {
+            result = await executeShellFunction(
+                functionBody,
+                functionArguments: commandArgs,
+                stdin: input,
+                filesystem: filesystem,
+                currentDirectory: &currentDirectory,
+                environment: &environment,
+                history: history,
+                commandRegistry: commandRegistry,
+                shellFunctions: shellFunctions,
+                enableGlobbing: enableGlobbing,
+                jobControl: jobControl,
+                secretPolicy: secretPolicy,
+                secretResolver: secretResolver,
+                secretTracker: secretTracker,
+                secretOutputRedactor: secretOutputRedactor
+            )
+        } else {
             let message = "\(commandName): command not found\n"
             return CommandResult(stdout: Data(), stderr: Data(message.utf8), exitCode: 127)
         }
-
-        var context = CommandContext(
-            commandName: commandName,
-            arguments: commandArgs,
-            filesystem: filesystem,
-            enableGlobbing: enableGlobbing,
-            secretPolicy: secretPolicy,
-            secretResolver: secretResolver,
-            availableCommands: commandRegistry.keys.sorted(),
-            commandRegistry: commandRegistry,
-            history: history,
-            currentDirectory: currentDirectory,
-            environment: environment,
-            stdin: input,
-            secretTracker: secretTracker
-        )
-
-        let exitCode = await implementation.runCommand(&context, commandArgs)
-
-        var result = CommandResult(stdout: context.stdout, stderr: context.stderr, exitCode: exitCode)
-
-        currentDirectory = context.currentDirectory
-        environment = context.environment
 
         for redirection in command.redirections where redirection.type != .stdin {
             switch redirection.type {
@@ -307,6 +398,117 @@ enum ShellExecutor {
         return result
     }
 
+    private static func executeShellFunction(
+        _ body: String,
+        functionArguments: [String],
+        stdin: Data,
+        filesystem: any ShellFilesystem,
+        currentDirectory: inout String,
+        environment: inout [String: String],
+        history: [String],
+        commandRegistry: [String: AnyBuiltinCommand],
+        shellFunctions: [String: String],
+        enableGlobbing: Bool,
+        jobControl: (any ShellJobControlling)?,
+        secretPolicy: SecretHandlingPolicy,
+        secretResolver: (any SecretReferenceResolving)?,
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
+    ) async -> CommandResult {
+        let parsedBody: ParsedLine
+        do {
+            parsedBody = try ShellParser.parse(body)
+        } catch {
+            return CommandResult(
+                stdout: Data(),
+                stderr: Data("\(error)\n".utf8),
+                exitCode: 2
+            )
+        }
+
+        let savedEnvironment = environment
+        let savedPositional = snapshotPositionalParameters(from: environment)
+        let previousDepth = Int(environment[functionDepthKey] ?? "0") ?? 0
+        let currentDepth = previousDepth + 1
+        let localBindingsKey = localBindingsKey(for: currentDepth)
+
+        environment[functionDepthKey] = String(currentDepth)
+        environment[localBindingsKey] = ""
+        applyPositionalParameters(functionArguments, to: &environment)
+
+        let execution = await execute(
+            parsedLine: parsedBody,
+            stdin: stdin,
+            filesystem: filesystem,
+            currentDirectory: currentDirectory,
+            environment: environment,
+            history: history,
+            commandRegistry: commandRegistry,
+            shellFunctions: shellFunctions,
+            enableGlobbing: enableGlobbing,
+            jobControl: jobControl,
+            secretPolicy: secretPolicy,
+            secretResolver: secretResolver,
+            secretTracker: secretTracker,
+            secretOutputRedactor: secretOutputRedactor
+        )
+
+        currentDirectory = execution.currentDirectory
+        environment = restorePositionalParameters(
+            in: execution.environment,
+            snapshot: savedPositional
+        )
+
+        restoreLocalBindings(
+            markerKey: localBindingsKey,
+            savedEnvironment: savedEnvironment,
+            environment: &environment
+        )
+
+        if previousDepth == 0 {
+            environment.removeValue(forKey: functionDepthKey)
+        } else {
+            environment[functionDepthKey] = String(previousDepth)
+        }
+
+        return execution.result
+    }
+
+    private static func renderSegment(_ segment: ParsedSegment) -> String {
+        segment.pipeline.map(renderCommand).joined(separator: " | ")
+    }
+
+    private static func renderCommand(_ command: ParsedCommand) -> String {
+        var parts = command.words.map(\.rawValue)
+
+        for redirection in command.redirections {
+            switch redirection.type {
+            case .stdin:
+                parts.append("<")
+            case .stdoutTruncate:
+                parts.append(">")
+            case .stdoutAppend:
+                parts.append(">>")
+            case .stderrTruncate:
+                parts.append("2>")
+            case .stderrAppend:
+                parts.append("2>>")
+            case .stderrToStdout:
+                parts.append("2>&1")
+            case .stdoutAndErrTruncate:
+                parts.append("&>")
+            case .stdoutAndErrAppend:
+                parts.append("&>>")
+            }
+
+            if let target = redirection.target {
+                parts.append(target.rawValue)
+            }
+        }
+
+        return parts.joined(separator: " ")
+    }
+
     private static func resolveCommand(named commandName: String, registry: [String: AnyBuiltinCommand]) -> AnyBuiltinCommand? {
         if commandName.hasPrefix("/") {
             let base = PathUtils.basename(commandName)
@@ -322,6 +524,170 @@ enum ShellExecutor {
         }
 
         return nil
+    }
+
+    private static func parseAssignment(_ word: String) -> (name: String, value: String)? {
+        guard let equals = word.firstIndex(of: "="), equals != word.startIndex else {
+            return nil
+        }
+
+        let name = String(word[..<equals])
+        guard isValidIdentifier(name) else {
+            return nil
+        }
+
+        let valueStart = word.index(after: equals)
+        let value = String(word[valueStart...])
+        return (name: name, value: value)
+    }
+
+    private static let functionDepthKey = "__BASHSWIFT_INTERNAL_FUNCTION_DEPTH"
+    private static let localBindingsPrefix = "__BASHSWIFT_INTERNAL_LOCAL_KEYS_"
+
+    private static func localBindingsKey(for depth: Int) -> String {
+        "\(localBindingsPrefix)\(depth)"
+    }
+
+    private static func executeLocalBuiltin(
+        _ args: [String],
+        environment: inout [String: String]
+    ) -> CommandResult {
+        let depth = Int(environment[functionDepthKey] ?? "0") ?? 0
+        guard depth > 0 else {
+            return CommandResult(
+                stdout: Data(),
+                stderr: Data("local: can only be used in a function\n".utf8),
+                exitCode: 1
+            )
+        }
+
+        guard !args.isEmpty else {
+            return CommandResult(stdout: Data(), stderr: Data(), exitCode: 0)
+        }
+
+        let markerKey = localBindingsKey(for: depth)
+        var localNames = environment[markerKey]?
+            .split(separator: ",")
+            .map(String.init) ?? []
+        var seenNames = Set(localNames)
+
+        for argument in args {
+            if let assignment = parseAssignment(argument) {
+                guard isValidIdentifier(assignment.name) else {
+                    return CommandResult(
+                        stdout: Data(),
+                        stderr: Data("local: invalid identifier '\(assignment.name)'\n".utf8),
+                        exitCode: 1
+                    )
+                }
+                if seenNames.insert(assignment.name).inserted {
+                    localNames.append(assignment.name)
+                }
+                environment[assignment.name] = assignment.value
+                continue
+            }
+
+            guard isValidIdentifier(argument) else {
+                return CommandResult(
+                    stdout: Data(),
+                    stderr: Data("local: invalid identifier '\(argument)'\n".utf8),
+                    exitCode: 1
+                )
+            }
+
+            if seenNames.insert(argument).inserted {
+                localNames.append(argument)
+            }
+            if environment[argument] == nil {
+                environment[argument] = ""
+            }
+        }
+
+        environment[markerKey] = localNames.joined(separator: ",")
+        return CommandResult(stdout: Data(), stderr: Data(), exitCode: 0)
+    }
+
+    private static func restoreLocalBindings(
+        markerKey: String,
+        savedEnvironment: [String: String],
+        environment: inout [String: String]
+    ) {
+        let localNames = environment[markerKey]?
+            .split(separator: ",")
+            .map(String.init) ?? []
+        environment.removeValue(forKey: markerKey)
+
+        for name in localNames {
+            if let savedValue = savedEnvironment[name] {
+                environment[name] = savedValue
+            } else {
+                environment.removeValue(forKey: name)
+            }
+        }
+    }
+
+    private static func isValidIdentifier(_ value: String) -> Bool {
+        guard let first = value.first, first == "_" || first.isLetter else {
+            return false
+        }
+        return value.dropFirst().allSatisfy { $0 == "_" || $0.isLetter || $0.isNumber }
+    }
+
+    private static func snapshotPositionalParameters(from environment: [String: String]) -> [String: String] {
+        environment.filter { isPositionalParameterKey($0.key) }
+    }
+
+    private static func applyPositionalParameters(_ args: [String], to environment: inout [String: String]) {
+        for key in Array(environment.keys) where isPositionalParameterKey(key) {
+            environment.removeValue(forKey: key)
+        }
+
+        environment["#"] = String(args.count)
+        environment["@"] = args.joined(separator: " ")
+        environment["*"] = args.joined(separator: " ")
+        for (offset, value) in args.enumerated() {
+            environment[String(offset + 1)] = value
+        }
+    }
+
+    private static func restorePositionalParameters(
+        in environment: [String: String],
+        snapshot: [String: String]
+    ) -> [String: String] {
+        var output = environment
+        for key in Array(output.keys) where isPositionalParameterKey(key) {
+            output.removeValue(forKey: key)
+        }
+        output.merge(snapshot) { _, rhs in rhs }
+        return output
+    }
+
+    private static func isPositionalParameterKey(_ key: String) -> Bool {
+        if key == "#" || key == "@" || key == "*" {
+            return true
+        }
+        return !key.isEmpty && key.allSatisfy(\.isNumber)
+    }
+
+    private static func redactCommandResult(
+        _ result: CommandResult,
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
+    ) async -> CommandResult {
+        guard let secretTracker else {
+            return result
+        }
+
+        let replacements = await secretTracker.snapshot()
+        guard !replacements.isEmpty else {
+            return result
+        }
+
+        return CommandResult(
+            stdout: secretOutputRedactor.redact(data: result.stdout, replacements: replacements),
+            stderr: secretOutputRedactor.redact(data: result.stderr, replacements: replacements),
+            exitCode: result.exitCode
+        )
     }
 
     private static func expandWords(
@@ -427,6 +793,35 @@ enum ShellExecutor {
                 break
             }
 
+            if string[next] == "!" {
+                result += environment["!"] ?? ""
+                index = string.index(after: next)
+                continue
+            }
+
+            if string[next] == "@" || string[next] == "*" || string[next] == "#" {
+                result += environment[String(string[next])] ?? ""
+                index = string.index(after: next)
+                continue
+            }
+
+            if string[next] == "(" {
+                let maybeSecondOpen = string.index(after: next)
+                if maybeSecondOpen < string.endIndex, string[maybeSecondOpen] == "(",
+                   let capture = captureArithmeticExpansion(
+                       in: string,
+                       secondOpen: maybeSecondOpen
+                   ) {
+                    let evaluated = ArithmeticEvaluator.evaluate(
+                        capture.expression,
+                        environment: environment
+                    ) ?? 0
+                    result += String(evaluated)
+                    index = capture.endIndex
+                    continue
+                }
+            }
+
             if string[next] == "{" {
                 guard let close = string[next...].firstIndex(of: "}") else {
                     result.append("$")
@@ -465,6 +860,42 @@ enum ShellExecutor {
         }
 
         return result
+    }
+
+    private static func captureArithmeticExpansion(
+        in string: String,
+        secondOpen: String.Index
+    ) -> (expression: String, endIndex: String.Index)? {
+        var depth = 1
+        var cursor = string.index(after: secondOpen)
+        let expressionStart = cursor
+
+        while cursor < string.endIndex {
+            if string[cursor] == "(" {
+                let next = string.index(after: cursor)
+                if next < string.endIndex, string[next] == "(" {
+                    depth += 1
+                    cursor = string.index(after: next)
+                    continue
+                }
+            } else if string[cursor] == ")" {
+                let next = string.index(after: cursor)
+                if next < string.endIndex, string[next] == ")" {
+                    depth -= 1
+                    if depth == 0 {
+                        let expression = String(string[expressionStart..<cursor])
+                        return (
+                            expression: expression,
+                            endIndex: string.index(after: next)
+                        )
+                    }
+                    cursor = string.index(after: next)
+                    continue
+                }
+            }
+            cursor = string.index(after: cursor)
+        }
+        return nil
     }
 
     private static func redactForExternalOutput(
