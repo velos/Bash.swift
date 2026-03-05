@@ -205,6 +205,133 @@ struct SessionIntegrationTests {
         #expect(file.stdoutString == "1\n2\n3\n")
     }
 
+    @Test("if elif branches execute")
+    func ifElifBranchesExecute() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run(
+            "if false; then echo no > elif.txt; elif true; then echo elif-hit > elif.txt; else echo no > elif.txt; fi"
+        )
+        #expect(result.exitCode == 0)
+
+        let file = await session.run("cat elif.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "elif-hit\n")
+    }
+
+    @Test("until loops execute until condition becomes true")
+    func untilLoopsExecuteUntilConditionBecomesTrue() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run("i=1; until [ $i -gt 3 ]; do echo $i; i=$((i+1)); done > until.txt")
+        #expect(result.exitCode == 0)
+
+        let file = await session.run("cat until.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "1\n2\n3\n")
+    }
+
+    @Test("case statements with glob patterns execute")
+    func caseStatementsWithGlobPatternsExecute() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run(
+            "name=notes.md; case $name in *.md) echo md > case.txt ;; *.txt) echo txt > case.txt ;; *) echo other > case.txt ;; esac"
+        )
+        #expect(result.exitCode == 0)
+
+        let file = await session.run("cat case.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "md\n")
+    }
+
+    @Test("c-style for loops execute")
+    func cStyleForLoopsExecute() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run("for ((i=1; i<=3; i++)); do echo $i; done > cfor.txt")
+        #expect(result.exitCode == 0)
+
+        let file = await session.run("cat cfor.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "1\n2\n3\n")
+    }
+
+    @Test("function keyword form defines callable function")
+    func functionKeywordFormDefinesCallableFunction() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run("function greet { echo hi; }; greet > func_kw.txt")
+        #expect(result.exitCode == 0)
+
+        let file = await session.run("cat func_kw.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "hi\n")
+    }
+
+    @Test("local variables are scoped to function execution")
+    func localVariablesAreScopedToFunctionExecution() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run(
+            "x=outer; function show { local x=inner; echo $x; }; show > local_scope.txt; echo $x >> local_scope.txt"
+        )
+        #expect(result.exitCode == 0)
+
+        let file = await session.run("cat local_scope.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "inner\nouter\n")
+    }
+
+    @Test("arithmetic expansion supports rich operators")
+    func arithmeticExpansionSupportsRichOperators() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run(
+            "echo $((5 > 3)) > arith.txt; echo $((2 == 3)) >> arith.txt; echo $((1 && 0)) >> arith.txt; echo $((0 || 1)) >> arith.txt; echo $((5 & 3)) >> arith.txt; echo $((5 | 2)) >> arith.txt; echo $((5 ^ 1)) >> arith.txt; echo $((2 ** 8)) >> arith.txt"
+        )
+        #expect(result.exitCode == 0)
+
+        let file = await session.run("cat arith.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "1\n0\n0\n1\n1\n7\n4\n256\n")
+    }
+
+    @Test("direct positional all-args and count expansions")
+    func directPositionalAllArgsAndCountExpansions() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run("show(){ echo \"$@\"; echo \"$#\"; }; show one \"two words\" three > pos.txt")
+        #expect(result.exitCode == 0)
+
+        let file = await session.run("cat pos.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "one two words three\n3\n")
+    }
+
+    @Test("ln without -s keeps linked file content in sync")
+    func lnWithoutSymbolicFlagKeepsLinkedFileContentInSync() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        _ = await session.run("printf 'one\\n' > src.txt")
+        let linked = await session.run("ln src.txt dst.txt")
+        #expect(linked.exitCode == 0)
+
+        _ = await session.run("echo two >> src.txt")
+        let file = await session.run("cat dst.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "one\ntwo\n")
+    }
+
     @Test("wget version output includes Wget marker")
     func wgetVersionOutputIncludesWgetMarker() async throws {
         let (session, root) = try await TestSupport.makeSession()

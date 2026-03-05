@@ -244,6 +244,8 @@ enum ShellExecutor {
         if commandArgs.isEmpty, let assignment = parseAssignment(commandName) {
             environment[assignment.name] = assignment.value
             result = CommandResult(stdout: Data(), stderr: Data(), exitCode: 0)
+        } else if commandName == "local" {
+            result = executeLocalBuiltin(commandArgs, environment: &environment)
         } else if let implementation = resolveCommand(named: commandName, registry: commandRegistry) {
             var context = CommandContext(
                 commandName: commandName,
@@ -424,7 +426,14 @@ enum ShellExecutor {
             )
         }
 
+        let savedEnvironment = environment
         let savedPositional = snapshotPositionalParameters(from: environment)
+        let previousDepth = Int(environment[functionDepthKey] ?? "0") ?? 0
+        let currentDepth = previousDepth + 1
+        let localBindingsKey = localBindingsKey(for: currentDepth)
+
+        environment[functionDepthKey] = String(currentDepth)
+        environment[localBindingsKey] = ""
         applyPositionalParameters(functionArguments, to: &environment)
 
         let execution = await execute(
@@ -449,6 +458,19 @@ enum ShellExecutor {
             in: execution.environment,
             snapshot: savedPositional
         )
+
+        restoreLocalBindings(
+            markerKey: localBindingsKey,
+            savedEnvironment: savedEnvironment,
+            environment: &environment
+        )
+
+        if previousDepth == 0 {
+            environment.removeValue(forKey: functionDepthKey)
+        } else {
+            environment[functionDepthKey] = String(previousDepth)
+        }
+
         return execution.result
     }
 
@@ -517,6 +539,91 @@ enum ShellExecutor {
         let valueStart = word.index(after: equals)
         let value = String(word[valueStart...])
         return (name: name, value: value)
+    }
+
+    private static let functionDepthKey = "__BASHSWIFT_INTERNAL_FUNCTION_DEPTH"
+    private static let localBindingsPrefix = "__BASHSWIFT_INTERNAL_LOCAL_KEYS_"
+
+    private static func localBindingsKey(for depth: Int) -> String {
+        "\(localBindingsPrefix)\(depth)"
+    }
+
+    private static func executeLocalBuiltin(
+        _ args: [String],
+        environment: inout [String: String]
+    ) -> CommandResult {
+        let depth = Int(environment[functionDepthKey] ?? "0") ?? 0
+        guard depth > 0 else {
+            return CommandResult(
+                stdout: Data(),
+                stderr: Data("local: can only be used in a function\n".utf8),
+                exitCode: 1
+            )
+        }
+
+        guard !args.isEmpty else {
+            return CommandResult(stdout: Data(), stderr: Data(), exitCode: 0)
+        }
+
+        let markerKey = localBindingsKey(for: depth)
+        var localNames = environment[markerKey]?
+            .split(separator: ",")
+            .map(String.init) ?? []
+        var seenNames = Set(localNames)
+
+        for argument in args {
+            if let assignment = parseAssignment(argument) {
+                guard isValidIdentifier(assignment.name) else {
+                    return CommandResult(
+                        stdout: Data(),
+                        stderr: Data("local: invalid identifier '\(assignment.name)'\n".utf8),
+                        exitCode: 1
+                    )
+                }
+                if seenNames.insert(assignment.name).inserted {
+                    localNames.append(assignment.name)
+                }
+                environment[assignment.name] = assignment.value
+                continue
+            }
+
+            guard isValidIdentifier(argument) else {
+                return CommandResult(
+                    stdout: Data(),
+                    stderr: Data("local: invalid identifier '\(argument)'\n".utf8),
+                    exitCode: 1
+                )
+            }
+
+            if seenNames.insert(argument).inserted {
+                localNames.append(argument)
+            }
+            if environment[argument] == nil {
+                environment[argument] = ""
+            }
+        }
+
+        environment[markerKey] = localNames.joined(separator: ",")
+        return CommandResult(stdout: Data(), stderr: Data(), exitCode: 0)
+    }
+
+    private static func restoreLocalBindings(
+        markerKey: String,
+        savedEnvironment: [String: String],
+        environment: inout [String: String]
+    ) {
+        let localNames = environment[markerKey]?
+            .split(separator: ",")
+            .map(String.init) ?? []
+        environment.removeValue(forKey: markerKey)
+
+        for name in localNames {
+            if let savedValue = savedEnvironment[name] {
+                environment[name] = savedValue
+            } else {
+                environment.removeValue(forKey: name)
+            }
+        }
     }
 
     private static func isValidIdentifier(_ value: String) -> Bool {
@@ -692,6 +799,12 @@ enum ShellExecutor {
                 continue
             }
 
+            if string[next] == "@" || string[next] == "*" || string[next] == "#" {
+                result += environment[String(string[next])] ?? ""
+                index = string.index(after: next)
+                continue
+            }
+
             if string[next] == "(" {
                 let maybeSecondOpen = string.index(after: next)
                 if maybeSecondOpen < string.endIndex, string[maybeSecondOpen] == "(",
@@ -699,7 +812,7 @@ enum ShellExecutor {
                        in: string,
                        secondOpen: maybeSecondOpen
                    ) {
-                    let evaluated = evaluateArithmeticExpression(
+                    let evaluated = ArithmeticEvaluator.evaluate(
                         capture.expression,
                         environment: environment
                     ) ?? 0
@@ -783,177 +896,6 @@ enum ShellExecutor {
             cursor = string.index(after: cursor)
         }
         return nil
-    }
-
-    private static func evaluateArithmeticExpression(
-        _ raw: String,
-        environment: [String: String]
-    ) -> Int? {
-        enum Token {
-            case number(Int)
-            case op(Character)
-            case lparen
-            case rparen
-        }
-
-        func isIdentifierStart(_ character: Character) -> Bool {
-            character == "_" || character.isLetter
-        }
-
-        func isIdentifierBody(_ character: Character) -> Bool {
-            character == "_" || character.isLetter || character.isNumber
-        }
-
-        let chars = Array(raw)
-        var tokens: [Token] = []
-        var index = 0
-
-        while index < chars.count {
-            let char = chars[index]
-            if char.isWhitespace {
-                index += 1
-                continue
-            }
-
-            if char == "(" {
-                tokens.append(.lparen)
-                index += 1
-                continue
-            }
-
-            if char == ")" {
-                tokens.append(.rparen)
-                index += 1
-                continue
-            }
-
-            if "+-*/%".contains(char) {
-                tokens.append(.op(char))
-                index += 1
-                continue
-            }
-
-            if char.isNumber ||
-                (char == "-" && index + 1 < chars.count && chars[index + 1].isNumber) {
-                var value = String(char)
-                index += 1
-                while index < chars.count, chars[index].isNumber {
-                    value.append(chars[index])
-                    index += 1
-                }
-                guard let intValue = Int(value) else {
-                    return nil
-                }
-                tokens.append(.number(intValue))
-                continue
-            }
-
-            if isIdentifierStart(char) {
-                var name = String(char)
-                index += 1
-                while index < chars.count, isIdentifierBody(chars[index]) {
-                    name.append(chars[index])
-                    index += 1
-                }
-                let intValue = Int(environment[name] ?? "") ?? 0
-                tokens.append(.number(intValue))
-                continue
-            }
-
-            return nil
-        }
-
-        var cursor = 0
-
-        func parseExpression() -> Int? {
-            guard var value = parseTerm() else {
-                return nil
-            }
-
-            while cursor < tokens.count {
-                guard case let .op(op) = tokens[cursor], op == "+" || op == "-" else {
-                    break
-                }
-                cursor += 1
-                guard let rhs = parseTerm() else {
-                    return nil
-                }
-                value = op == "+" ? value + rhs : value - rhs
-            }
-            return value
-        }
-
-        func parseTerm() -> Int? {
-            guard var value = parseFactor() else {
-                return nil
-            }
-
-            while cursor < tokens.count {
-                guard case let .op(op) = tokens[cursor], op == "*" || op == "/" || op == "%" else {
-                    break
-                }
-                cursor += 1
-                guard let rhs = parseFactor() else {
-                    return nil
-                }
-
-                switch op {
-                case "*":
-                    value *= rhs
-                case "/":
-                    if rhs == 0 {
-                        return nil
-                    }
-                    value /= rhs
-                case "%":
-                    if rhs == 0 {
-                        return nil
-                    }
-                    value %= rhs
-                default:
-                    return nil
-                }
-            }
-            return value
-        }
-
-        func parseFactor() -> Int? {
-            guard cursor < tokens.count else {
-                return nil
-            }
-
-            switch tokens[cursor] {
-            case let .number(value):
-                cursor += 1
-                return value
-            case .lparen:
-                cursor += 1
-                guard let value = parseExpression() else {
-                    return nil
-                }
-                guard cursor < tokens.count, case .rparen = tokens[cursor] else {
-                    return nil
-                }
-                cursor += 1
-                return value
-            case .rparen:
-                return nil
-            case .op(let op):
-                if op == "-" {
-                    cursor += 1
-                    guard let value = parseFactor() else {
-                        return nil
-                    }
-                    return -value
-                }
-                return nil
-            }
-        }
-
-        guard let value = parseExpression(), cursor == tokens.count else {
-            return nil
-        }
-        return value
     }
 
     private static func redactForExternalOutput(

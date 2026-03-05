@@ -160,6 +160,11 @@ public final class SecurityScopedFilesystem: SessionConfigurableFilesystem, @unc
         try await backing.createSymlink(path: path, target: target)
     }
 
+    public func createHardLink(path: String, target: String) async throws {
+        try ensureWritable()
+        try await backing.createHardLink(path: path, target: target)
+    }
+
     public func readSymlink(path: String) async throws -> String {
         try await backing.readSymlink(path: path)
     }
