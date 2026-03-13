@@ -96,6 +96,58 @@ struct ParserAndFilesystemTests {
         #expect(parsed.segments[0].runInBackground == true)
     }
 
+    @Test("parser captures here document bodies")
+    func parserCapturesHereDocumentBodies() throws {
+        let parsed = try ShellParser.parse(
+            """
+            cat <<'EOF'
+            hello
+            EOF
+            echo done
+            """
+        )
+
+        #expect(parsed.segments.count == 2)
+        #expect(parsed.segments[0].pipeline.count == 1)
+
+        let command = parsed.segments[0].pipeline[0]
+        #expect(command.words.map(\.rawValue) == ["cat"])
+        #expect(command.redirections.count == 1)
+        #expect(command.redirections[0].type == .stdin)
+        if command.redirections[0].target != nil {
+            Issue.record("expected here document redirection without file target")
+        }
+        #expect(command.redirections[0].hereDocument?.delimiter == "EOF")
+        #expect(command.redirections[0].hereDocument?.body == "hello\n")
+        #expect(command.redirections[0].hereDocument?.stripsLeadingTabs == false)
+        #expect(parsed.segments[1].connector == .sequence)
+    }
+
+    @Test("parser captures tab-stripped here document bodies")
+    func parserCapturesTabStrippedHereDocumentBodies() throws {
+        let parsed = try ShellParser.parse(
+            """
+            cat <<-'EOF'
+             \tkeep-leading-space
+            \ttrim-leading-tab
+            \tEOF
+            """
+        )
+
+        let command = parsed.segments[0].pipeline[0]
+        let hereDocument = command.redirections[0].hereDocument
+        #expect(hereDocument?.delimiter == "EOF")
+        #expect(hereDocument?.stripsLeadingTabs == true)
+        #expect(
+            hereDocument?.body ==
+                """
+                 \tkeep-leading-space
+                trim-leading-tab
+                """
+                + "\n"
+        )
+    }
+
     @Test("default unix-like layout is created")
     func defaultUnixLikeLayoutIsCreated() async throws {
         let (session, root) = try await TestSupport.makeSession()

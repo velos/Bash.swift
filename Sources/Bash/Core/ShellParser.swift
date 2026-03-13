@@ -11,9 +11,17 @@ enum RedirectionType: Sendable {
     case stdoutAndErrAppend
 }
 
+struct HereDocument: Sendable {
+    let delimiter: String
+    let body: String
+    let allowsExpansion: Bool
+    let stripsLeadingTabs: Bool
+}
+
 struct Redirection: Sendable {
     let type: RedirectionType
     let target: ShellWord?
+    let hereDocument: HereDocument?
 }
 
 struct ParsedCommand: Sendable {
@@ -133,34 +141,37 @@ enum ShellParser {
             case .redirOut:
                 index += 1
                 let target = try takeRedirectionTarget(tokens: tokens, index: &index)
-                redirections.append(Redirection(type: .stdoutTruncate, target: target))
+                redirections.append(Redirection(type: .stdoutTruncate, target: target, hereDocument: nil))
             case .redirAppend:
                 index += 1
                 let target = try takeRedirectionTarget(tokens: tokens, index: &index)
-                redirections.append(Redirection(type: .stdoutAppend, target: target))
+                redirections.append(Redirection(type: .stdoutAppend, target: target, hereDocument: nil))
             case .redirIn:
                 index += 1
                 let target = try takeRedirectionTarget(tokens: tokens, index: &index)
-                redirections.append(Redirection(type: .stdin, target: target))
+                redirections.append(Redirection(type: .stdin, target: target, hereDocument: nil))
+            case let .redirHereDoc(hereDocument):
+                index += 1
+                redirections.append(Redirection(type: .stdin, target: nil, hereDocument: hereDocument))
             case .redirErrOut:
                 index += 1
                 let target = try takeRedirectionTarget(tokens: tokens, index: &index)
-                redirections.append(Redirection(type: .stderrTruncate, target: target))
+                redirections.append(Redirection(type: .stderrTruncate, target: target, hereDocument: nil))
             case .redirErrAppend:
                 index += 1
                 let target = try takeRedirectionTarget(tokens: tokens, index: &index)
-                redirections.append(Redirection(type: .stderrAppend, target: target))
+                redirections.append(Redirection(type: .stderrAppend, target: target, hereDocument: nil))
             case .redirErrToOut:
                 index += 1
-                redirections.append(Redirection(type: .stderrToStdout, target: nil))
+                redirections.append(Redirection(type: .stderrToStdout, target: nil, hereDocument: nil))
             case .redirAllOut:
                 index += 1
                 let target = try takeRedirectionTarget(tokens: tokens, index: &index)
-                redirections.append(Redirection(type: .stdoutAndErrTruncate, target: target))
+                redirections.append(Redirection(type: .stdoutAndErrTruncate, target: target, hereDocument: nil))
             case .redirAllAppend:
                 index += 1
                 let target = try takeRedirectionTarget(tokens: tokens, index: &index)
-                redirections.append(Redirection(type: .stdoutAndErrAppend, target: target))
+                redirections.append(Redirection(type: .stdoutAndErrAppend, target: target, hereDocument: nil))
             case .pipe, .semicolon, .background, .andIf, .orIf:
                 if words.isEmpty {
                     throw ShellError.parserError("expected command before operator")

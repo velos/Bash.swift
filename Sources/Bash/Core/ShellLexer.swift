@@ -40,6 +40,7 @@ enum LexToken: Sendable {
     case redirErrToOut
     case redirAllOut
     case redirAllAppend
+    case redirHereDoc(HereDocument)
 }
 
 enum ShellLexer {
@@ -50,6 +51,9 @@ enum ShellLexer {
         var parts: [ShellWordPart] = []
         var currentPart = ""
         var currentQuote: QuoteKind = .none
+        var expectingHereDocumentDelimiter = false
+        var pendingHereDocumentStripsLeadingTabs = false
+        var pendingHereDocumentTokenIndexes: [Int] = []
 
         func flushPart() {
             guard !currentPart.isEmpty else { return }
@@ -60,7 +64,21 @@ enum ShellLexer {
         func flushWord() {
             flushPart()
             guard !parts.isEmpty else { return }
-            tokens.append(.word(ShellWord(parts: parts)))
+            let word = ShellWord(parts: parts)
+            if expectingHereDocumentDelimiter {
+                let hereDocument = HereDocument(
+                    delimiter: word.rawValue,
+                    body: "",
+                    allowsExpansion: word.parts.allSatisfy { $0.quote == .none },
+                    stripsLeadingTabs: pendingHereDocumentStripsLeadingTabs
+                )
+                pendingHereDocumentTokenIndexes.append(tokens.count)
+                tokens.append(.redirHereDoc(hereDocument))
+                expectingHereDocumentDelimiter = false
+                pendingHereDocumentStripsLeadingTabs = false
+            } else {
+                tokens.append(.word(word))
+            }
             parts.removeAll(keepingCapacity: true)
         }
 
@@ -71,9 +89,44 @@ enum ShellLexer {
                 tokens.append(.semicolon)
             case .pipe, .andIf, .orIf, .semicolon, .background,
                  .redirOut, .redirAppend, .redirIn, .redirErrOut, .redirErrAppend,
-                 .redirErrToOut, .redirAllOut, .redirAllAppend:
+                 .redirErrToOut, .redirAllOut, .redirAllAppend, .redirHereDoc:
                 break
             }
+        }
+
+        func emitSequenceSeparatorAfterHereDocumentsIfNeeded() {
+            guard i < input.endIndex, let last = tokens.last else { return }
+            switch last {
+            case .pipe, .andIf, .orIf, .semicolon, .background:
+                break
+            case .word, .redirOut, .redirAppend, .redirIn, .redirErrOut, .redirErrAppend,
+                 .redirErrToOut, .redirAllOut, .redirAllAppend, .redirHereDoc:
+                tokens.append(.semicolon)
+            }
+        }
+
+        func capturePendingHereDocuments() throws {
+            for tokenIndex in pendingHereDocumentTokenIndexes {
+                guard case let .redirHereDoc(hereDocument) = tokens[tokenIndex] else {
+                    continue
+                }
+
+                let body = try readHereDocumentBody(
+                    input: input,
+                    index: &i,
+                    delimiter: hereDocument.delimiter,
+                    stripsLeadingTabs: hereDocument.stripsLeadingTabs
+                )
+                tokens[tokenIndex] = .redirHereDoc(
+                    HereDocument(
+                        delimiter: hereDocument.delimiter,
+                        body: body,
+                        allowsExpansion: hereDocument.allowsExpansion,
+                        stripsLeadingTabs: hereDocument.stripsLeadingTabs
+                    )
+                )
+            }
+            pendingHereDocumentTokenIndexes.removeAll(keepingCapacity: true)
         }
 
         while i < input.endIndex {
@@ -88,8 +141,32 @@ enum ShellLexer {
 
             if currentQuote == .none, char == "\n" {
                 flushWord()
-                emitSequenceSeparatorIfNeeded()
+                if expectingHereDocumentDelimiter {
+                    throw ShellError.parserError("missing redirection target")
+                }
                 i = input.index(after: i)
+                if !pendingHereDocumentTokenIndexes.isEmpty {
+                    try capturePendingHereDocuments()
+                    emitSequenceSeparatorAfterHereDocumentsIfNeeded()
+                } else {
+                    emitSequenceSeparatorIfNeeded()
+                }
+                continue
+            }
+
+            if currentQuote == .none, input[i...].hasPrefix("<<-") {
+                flushWord()
+                expectingHereDocumentDelimiter = true
+                pendingHereDocumentStripsLeadingTabs = true
+                i = input.index(i, offsetBy: 3)
+                continue
+            }
+
+            if currentQuote == .none, input[i...].hasPrefix("<<") {
+                flushWord()
+                expectingHereDocumentDelimiter = true
+                pendingHereDocumentStripsLeadingTabs = false
+                i = input.index(i, offsetBy: 2)
                 continue
             }
 
@@ -159,7 +236,57 @@ enum ShellLexer {
         }
 
         flushWord()
+        if expectingHereDocumentDelimiter {
+            throw ShellError.parserError("missing redirection target")
+        }
+        if !pendingHereDocumentTokenIndexes.isEmpty {
+            throw ShellError.parserError("unterminated here-document")
+        }
         return tokens
+    }
+
+    private static func readHereDocumentBody(
+        input: String,
+        index: inout String.Index,
+        delimiter: String,
+        stripsLeadingTabs: Bool
+    ) throws -> String {
+        var body = ""
+
+        while index < input.endIndex {
+            let lineStart = index
+            while index < input.endIndex, input[index] != "\n" {
+                index = input.index(after: index)
+            }
+
+            let line = String(input[lineStart..<index])
+            let contentLine = stripsLeadingTabs ? stripLeadingTabs(from: line) : line
+            let comparisonLine: String
+            if contentLine.hasSuffix("\r") {
+                comparisonLine = String(contentLine.dropLast())
+            } else {
+                comparisonLine = contentLine
+            }
+
+            if comparisonLine == delimiter {
+                if index < input.endIndex {
+                    index = input.index(after: index)
+                }
+                return body
+            }
+
+            body.append(contentsOf: contentLine)
+            if index < input.endIndex {
+                body.append("\n")
+                index = input.index(after: index)
+            }
+        }
+
+        throw ShellError.parserError("unterminated here-document")
+    }
+
+    private static func stripLeadingTabs(from line: String) -> String {
+        String(line.drop { $0 == "\t" })
     }
 
     private static func captureArithmeticExpansion(

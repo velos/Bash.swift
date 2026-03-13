@@ -6,6 +6,12 @@ struct ShellExecutionResult: Sendable {
     var environment: [String: String]
 }
 
+private struct TextExpansionOutcome: Sendable {
+    var text: String
+    var stderr: Data
+    var error: ShellError?
+}
+
 enum ShellExecutor {
     static func execute(
         parsedLine: ParsedLine,
@@ -209,6 +215,30 @@ enum ShellExecutor {
         var stderr = Data()
 
         for redirection in command.redirections where redirection.type == .stdin {
+            if let hereDocument = redirection.hereDocument {
+                let expandedHereDocument = await expandHereDocumentBody(
+                    hereDocument,
+                    filesystem: filesystem,
+                    currentDirectory: currentDirectory,
+                    environment: environment,
+                    history: history,
+                    commandRegistry: commandRegistry,
+                    shellFunctions: shellFunctions,
+                    enableGlobbing: enableGlobbing,
+                    secretPolicy: secretPolicy,
+                    secretResolver: secretResolver,
+                    secretTracker: secretTracker,
+                    secretOutputRedactor: secretOutputRedactor
+                )
+                stderr.append(expandedHereDocument.stderr)
+                if let error = expandedHereDocument.error {
+                    stderr.append(Data("\(error)\n".utf8))
+                    return CommandResult(stdout: Data(), stderr: stderr, exitCode: 2)
+                }
+                input = Data(expandedHereDocument.text.utf8)
+                continue
+            }
+
             guard let targetWord = redirection.target else { continue }
             let target = await firstExpansion(
                 word: targetWord,
@@ -484,7 +514,12 @@ enum ShellExecutor {
         for redirection in command.redirections {
             switch redirection.type {
             case .stdin:
-                parts.append("<")
+                if let hereDocument = redirection.hereDocument {
+                    let operatorToken = hereDocument.stripsLeadingTabs ? "<<-" : "<<"
+                    parts.append("\(operatorToken)\(hereDocument.delimiter)")
+                } else {
+                    parts.append("<")
+                }
             case .stdoutTruncate:
                 parts.append(">")
             case .stdoutAppend:
@@ -860,6 +895,708 @@ enum ShellExecutor {
         }
 
         return result
+    }
+
+    private struct PendingHereDocumentCapture: Sendable {
+        let delimiter: String
+        let stripsLeadingTabs: Bool
+    }
+
+    private static func expandHereDocumentBody(
+        _ hereDocument: HereDocument,
+        filesystem: any ShellFilesystem,
+        currentDirectory: String,
+        environment: [String: String],
+        history: [String],
+        commandRegistry: [String: AnyBuiltinCommand],
+        shellFunctions: [String: String],
+        enableGlobbing: Bool,
+        secretPolicy: SecretHandlingPolicy,
+        secretResolver: (any SecretReferenceResolving)?,
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
+    ) async -> TextExpansionOutcome {
+        guard hereDocument.allowsExpansion else {
+            return TextExpansionOutcome(
+                text: hereDocument.body,
+                stderr: Data(),
+                error: nil
+            )
+        }
+
+        return await expandUnquotedHereDocumentText(
+            hereDocument.body,
+            filesystem: filesystem,
+            currentDirectory: currentDirectory,
+            environment: environment,
+            history: history,
+            commandRegistry: commandRegistry,
+            shellFunctions: shellFunctions,
+            enableGlobbing: enableGlobbing,
+            secretPolicy: secretPolicy,
+            secretResolver: secretResolver,
+            secretTracker: secretTracker,
+            secretOutputRedactor: secretOutputRedactor
+        )
+    }
+
+    private static func expandUnquotedHereDocumentText(
+        _ text: String,
+        filesystem: any ShellFilesystem,
+        currentDirectory: String,
+        environment: [String: String],
+        history: [String],
+        commandRegistry: [String: AnyBuiltinCommand],
+        shellFunctions: [String: String],
+        enableGlobbing: Bool,
+        secretPolicy: SecretHandlingPolicy,
+        secretResolver: (any SecretReferenceResolving)?,
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
+    ) async -> TextExpansionOutcome {
+        var output = ""
+        var stderr = Data()
+        var index = text.startIndex
+
+        func readIdentifier(startingAt start: String.Index) -> (String, String.Index) {
+            var cursor = start
+            var value = ""
+            while cursor < text.endIndex {
+                let character = text[cursor]
+                if character.isLetter || character.isNumber || character == "_" {
+                    value.append(character)
+                    cursor = text.index(after: cursor)
+                } else {
+                    break
+                }
+            }
+            return (value, cursor)
+        }
+
+        while index < text.endIndex {
+            let character = text[index]
+
+            if character == "\\" {
+                let next = text.index(after: index)
+                if next < text.endIndex {
+                    let escaped = text[next]
+                    if escaped == "\n" {
+                        index = text.index(after: next)
+                        continue
+                    }
+                    if escaped == "$" || escaped == "\\" {
+                        output.append(escaped)
+                        index = text.index(after: next)
+                        continue
+                    }
+                }
+
+                output.append("\\")
+                index = next
+                continue
+            }
+
+            guard character == "$" else {
+                output.append(character)
+                index = text.index(after: index)
+                continue
+            }
+
+            let next = text.index(after: index)
+            guard next < text.endIndex else {
+                output.append("$")
+                break
+            }
+
+            if text[next] == "(" {
+                let maybeSecondOpen = text.index(after: next)
+                if maybeSecondOpen < text.endIndex, text[maybeSecondOpen] == "(",
+                   let capture = captureArithmeticExpansion(in: text, secondOpen: maybeSecondOpen) {
+                    let evaluated = ArithmeticEvaluator.evaluate(
+                        capture.expression,
+                        environment: environment
+                    ) ?? 0
+                    output += String(evaluated)
+                    index = capture.endIndex
+                    continue
+                }
+
+                do {
+                    let capture = try captureCommandSubstitution(in: text, from: index)
+                    let evaluated = await evaluateCommandSubstitutionInCommandText(
+                        capture.content,
+                        filesystem: filesystem,
+                        currentDirectory: currentDirectory,
+                        environment: environment,
+                        history: history,
+                        commandRegistry: commandRegistry,
+                        shellFunctions: shellFunctions,
+                        enableGlobbing: enableGlobbing,
+                        secretPolicy: secretPolicy,
+                        secretResolver: secretResolver,
+                        secretTracker: secretTracker,
+                        secretOutputRedactor: secretOutputRedactor
+                    )
+                    output += evaluated.text
+                    stderr.append(evaluated.stderr)
+                    if let error = evaluated.error {
+                        return TextExpansionOutcome(
+                            text: output,
+                            stderr: stderr,
+                            error: error
+                        )
+                    }
+                    index = capture.endIndex
+                    continue
+                } catch let shellError as ShellError {
+                    return TextExpansionOutcome(
+                        text: output,
+                        stderr: stderr,
+                        error: shellError
+                    )
+                } catch {
+                    return TextExpansionOutcome(
+                        text: output,
+                        stderr: stderr,
+                        error: .parserError("\(error)")
+                    )
+                }
+            }
+
+            if text[next] == "!" {
+                output += environment["!"] ?? ""
+                index = text.index(after: next)
+                continue
+            }
+
+            if text[next] == "@" || text[next] == "*" || text[next] == "#" {
+                output += environment[String(text[next])] ?? ""
+                index = text.index(after: next)
+                continue
+            }
+
+            if text[next] == "{" {
+                guard let close = text[next...].firstIndex(of: "}") else {
+                    output.append("$")
+                    index = next
+                    continue
+                }
+
+                let contentStart = text.index(after: next)
+                let content = String(text[contentStart..<close])
+
+                if let range = content.range(of: ":-") {
+                    let key = String(content[..<range.lowerBound])
+                    let fallback = String(content[range.upperBound...])
+                    let value = environment[key]
+                    if let value, !value.isEmpty {
+                        output += value
+                    } else {
+                        output += fallback
+                    }
+                } else {
+                    output += environment[content] ?? ""
+                }
+
+                index = text.index(after: close)
+                continue
+            }
+
+            let (key, end) = readIdentifier(startingAt: next)
+            if key.isEmpty {
+                output.append("$")
+                index = next
+            } else {
+                output += environment[key] ?? ""
+                index = end
+            }
+        }
+
+        return TextExpansionOutcome(
+            text: output,
+            stderr: stderr,
+            error: nil
+        )
+    }
+
+    private static func expandCommandSubstitutionsInCommandText(
+        _ commandLine: String,
+        filesystem: any ShellFilesystem,
+        currentDirectory: String,
+        environment: [String: String],
+        history: [String],
+        commandRegistry: [String: AnyBuiltinCommand],
+        shellFunctions: [String: String],
+        enableGlobbing: Bool,
+        secretPolicy: SecretHandlingPolicy,
+        secretResolver: (any SecretReferenceResolving)?,
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
+    ) async -> TextExpansionOutcome {
+        var output = ""
+        var stderr = Data()
+        var quote: QuoteKind = .none
+        var index = commandLine.startIndex
+        var pendingHereDocuments: [PendingHereDocumentCapture] = []
+
+        while index < commandLine.endIndex {
+            let character = commandLine[index]
+
+            if character == "\\", quote != .single {
+                let next = commandLine.index(after: index)
+                output.append(character)
+                if next < commandLine.endIndex {
+                    output.append(commandLine[next])
+                    index = commandLine.index(after: next)
+                } else {
+                    index = next
+                }
+                continue
+            }
+
+            if character == "'", quote != .double {
+                quote = quote == .single ? .none : .single
+                output.append(character)
+                index = commandLine.index(after: index)
+                continue
+            }
+
+            if character == "\"", quote != .single {
+                quote = quote == .double ? .none : .double
+                output.append(character)
+                index = commandLine.index(after: index)
+                continue
+            }
+
+            if quote == .none,
+               commandLine[index...].hasPrefix("<<"),
+               let hereDocument = captureHereDocumentDeclaration(in: commandLine, from: index) {
+                output.append(contentsOf: commandLine[index..<hereDocument.endIndex])
+                pendingHereDocuments.append(
+                    PendingHereDocumentCapture(
+                        delimiter: hereDocument.delimiter,
+                        stripsLeadingTabs: hereDocument.stripsLeadingTabs
+                    )
+                )
+                index = hereDocument.endIndex
+                continue
+            }
+
+            if character == "\n" {
+                output.append(character)
+                index = commandLine.index(after: index)
+
+                if !pendingHereDocuments.isEmpty {
+                    do {
+                        let capture = try captureHereDocumentBodiesVerbatim(
+                            in: commandLine,
+                            from: index,
+                            hereDocuments: pendingHereDocuments
+                        )
+                        output.append(contentsOf: capture.raw)
+                        index = capture.endIndex
+                        pendingHereDocuments.removeAll(keepingCapacity: true)
+                    } catch let shellError as ShellError {
+                        return TextExpansionOutcome(
+                            text: output,
+                            stderr: stderr,
+                            error: shellError
+                        )
+                    } catch {
+                        return TextExpansionOutcome(
+                            text: output,
+                            stderr: stderr,
+                            error: .parserError("\(error)")
+                        )
+                    }
+                }
+                continue
+            }
+
+            if quote != .single, character == "$" {
+                if let arithmetic = captureArithmeticExpansion(in: commandLine, from: index) {
+                    output.append(arithmetic.raw)
+                    index = arithmetic.endIndex
+                    continue
+                }
+
+                let next = commandLine.index(after: index)
+                if next < commandLine.endIndex, commandLine[next] == "(" {
+                    do {
+                        let capture = try captureCommandSubstitution(in: commandLine, from: index)
+                        let evaluated = await evaluateCommandSubstitutionInCommandText(
+                            capture.content,
+                            filesystem: filesystem,
+                            currentDirectory: currentDirectory,
+                            environment: environment,
+                            history: history,
+                            commandRegistry: commandRegistry,
+                            shellFunctions: shellFunctions,
+                            enableGlobbing: enableGlobbing,
+                            secretPolicy: secretPolicy,
+                            secretResolver: secretResolver,
+                            secretTracker: secretTracker,
+                            secretOutputRedactor: secretOutputRedactor
+                        )
+                        output.append(evaluated.text)
+                        stderr.append(evaluated.stderr)
+                        if let error = evaluated.error {
+                            return TextExpansionOutcome(
+                                text: output,
+                                stderr: stderr,
+                                error: error
+                            )
+                        }
+                        index = capture.endIndex
+                        continue
+                    } catch let shellError as ShellError {
+                        return TextExpansionOutcome(
+                            text: output,
+                            stderr: stderr,
+                            error: shellError
+                        )
+                    } catch {
+                        return TextExpansionOutcome(
+                            text: output,
+                            stderr: stderr,
+                            error: .parserError("\(error)")
+                        )
+                    }
+                }
+            }
+
+            output.append(character)
+            index = commandLine.index(after: index)
+        }
+
+        return TextExpansionOutcome(
+            text: output,
+            stderr: stderr,
+            error: nil
+        )
+    }
+
+    private static func evaluateCommandSubstitutionInCommandText(
+        _ command: String,
+        filesystem: any ShellFilesystem,
+        currentDirectory: String,
+        environment: [String: String],
+        history: [String],
+        commandRegistry: [String: AnyBuiltinCommand],
+        shellFunctions: [String: String],
+        enableGlobbing: Bool,
+        secretPolicy: SecretHandlingPolicy,
+        secretResolver: (any SecretReferenceResolving)?,
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
+    ) async -> TextExpansionOutcome {
+        let nested = await expandCommandSubstitutionsInCommandText(
+            command,
+            filesystem: filesystem,
+            currentDirectory: currentDirectory,
+            environment: environment,
+            history: history,
+            commandRegistry: commandRegistry,
+            shellFunctions: shellFunctions,
+            enableGlobbing: enableGlobbing,
+            secretPolicy: secretPolicy,
+            secretResolver: secretResolver,
+            secretTracker: secretTracker,
+            secretOutputRedactor: secretOutputRedactor
+        )
+        if nested.error != nil {
+            return nested
+        }
+
+        let parsed: ParsedLine
+        do {
+            parsed = try ShellParser.parse(nested.text)
+        } catch let shellError as ShellError {
+            return TextExpansionOutcome(
+                text: "",
+                stderr: nested.stderr,
+                error: shellError
+            )
+        } catch {
+            return TextExpansionOutcome(
+                text: "",
+                stderr: nested.stderr,
+                error: .parserError("\(error)")
+            )
+        }
+
+        let execution = await execute(
+            parsedLine: parsed,
+            stdin: Data(),
+            filesystem: filesystem,
+            currentDirectory: currentDirectory,
+            environment: environment,
+            history: history,
+            commandRegistry: commandRegistry,
+            shellFunctions: shellFunctions,
+            enableGlobbing: enableGlobbing,
+            jobControl: nil,
+            secretPolicy: secretPolicy,
+            secretResolver: secretResolver,
+            secretTracker: secretTracker,
+            secretOutputRedactor: secretOutputRedactor
+        )
+
+        var stderr = nested.stderr
+        stderr.append(execution.result.stderr)
+
+        return TextExpansionOutcome(
+            text: trimmingTrailingNewlines(from: execution.result.stdoutString),
+            stderr: stderr,
+            error: nil
+        )
+    }
+
+    private static func captureArithmeticExpansion(
+        in string: String,
+        from dollarIndex: String.Index
+    ) -> (raw: String, endIndex: String.Index)? {
+        let open = string.index(after: dollarIndex)
+        guard open < string.endIndex, string[open] == "(" else {
+            return nil
+        }
+
+        let secondOpen = string.index(after: open)
+        guard secondOpen < string.endIndex, string[secondOpen] == "(" else {
+            return nil
+        }
+
+        var depth = 1
+        var cursor = string.index(after: secondOpen)
+
+        while cursor < string.endIndex {
+            if string[cursor] == "(" {
+                let next = string.index(after: cursor)
+                if next < string.endIndex, string[next] == "(" {
+                    depth += 1
+                    cursor = string.index(after: next)
+                    continue
+                }
+            } else if string[cursor] == ")" {
+                let next = string.index(after: cursor)
+                if next < string.endIndex, string[next] == ")" {
+                    depth -= 1
+                    if depth == 0 {
+                        let end = string.index(after: next)
+                        return (raw: String(string[dollarIndex..<end]), endIndex: end)
+                    }
+                    cursor = string.index(after: next)
+                    continue
+                }
+            }
+            cursor = string.index(after: cursor)
+        }
+
+        return nil
+    }
+
+    private static func captureCommandSubstitution(
+        in commandLine: String,
+        from dollarIndex: String.Index
+    ) throws -> (content: String, endIndex: String.Index) {
+        let openIndex = commandLine.index(after: dollarIndex)
+        var index = commandLine.index(after: openIndex)
+        let contentStart = index
+        var depth = 1
+        var quote: QuoteKind = .none
+
+        while index < commandLine.endIndex {
+            let character = commandLine[index]
+
+            if character == "\\", quote != .single {
+                let next = commandLine.index(after: index)
+                if next < commandLine.endIndex {
+                    index = commandLine.index(after: next)
+                } else {
+                    index = next
+                }
+                continue
+            }
+
+            if character == "'", quote != .double {
+                quote = quote == .single ? .none : .single
+                index = commandLine.index(after: index)
+                continue
+            }
+
+            if character == "\"", quote != .single {
+                quote = quote == .double ? .none : .double
+                index = commandLine.index(after: index)
+                continue
+            }
+
+            if quote == .none {
+                if character == "$" {
+                    let next = commandLine.index(after: index)
+                    if next < commandLine.endIndex, commandLine[next] == "(" {
+                        let secondOpen = commandLine.index(after: next)
+                        if secondOpen < commandLine.endIndex, commandLine[secondOpen] == "(" {
+                            index = commandLine.index(after: index)
+                            continue
+                        }
+                        depth += 1
+                        index = commandLine.index(after: next)
+                        continue
+                    }
+                } else if character == ")" {
+                    depth -= 1
+                    if depth == 0 {
+                        let content = String(commandLine[contentStart..<index])
+                        return (
+                            content: content,
+                            endIndex: commandLine.index(after: index)
+                        )
+                    }
+                }
+            }
+
+            index = commandLine.index(after: index)
+        }
+
+        throw ShellError.parserError("unterminated command substitution")
+    }
+
+    private static func captureHereDocumentDeclaration(
+        in commandLine: String,
+        from operatorIndex: String.Index
+    ) -> (delimiter: String, stripsLeadingTabs: Bool, endIndex: String.Index)? {
+        let stripsLeadingTabs: Bool
+        let indexOffset: Int
+
+        if commandLine[operatorIndex...].hasPrefix("<<-") {
+            stripsLeadingTabs = true
+            indexOffset = 3
+        } else {
+            stripsLeadingTabs = false
+            indexOffset = 2
+        }
+
+        var index = commandLine.index(operatorIndex, offsetBy: indexOffset)
+
+        while index < commandLine.endIndex,
+              commandLine[index].isWhitespace,
+              commandLine[index] != "\n" {
+            index = commandLine.index(after: index)
+        }
+
+        guard index < commandLine.endIndex, commandLine[index] != "\n" else {
+            return nil
+        }
+
+        var delimiter = ""
+        var quote: QuoteKind = .none
+        var consumedAny = false
+
+        while index < commandLine.endIndex {
+            let character = commandLine[index]
+
+            if quote == .none, character.isWhitespace {
+                break
+            }
+
+            if character == "'", quote != .double {
+                quote = quote == .single ? .none : .single
+                consumedAny = true
+                index = commandLine.index(after: index)
+                continue
+            }
+
+            if character == "\"", quote != .single {
+                quote = quote == .double ? .none : .double
+                consumedAny = true
+                index = commandLine.index(after: index)
+                continue
+            }
+
+            if character == "\\", quote != .single {
+                let next = commandLine.index(after: index)
+                if next < commandLine.endIndex {
+                    delimiter.append(commandLine[next])
+                    index = commandLine.index(after: next)
+                } else {
+                    delimiter.append(character)
+                    index = next
+                }
+                consumedAny = true
+                continue
+            }
+
+            delimiter.append(character)
+            consumedAny = true
+            index = commandLine.index(after: index)
+        }
+
+        guard consumedAny, quote == .none else {
+            return nil
+        }
+
+        return (
+            delimiter: delimiter,
+            stripsLeadingTabs: stripsLeadingTabs,
+            endIndex: index
+        )
+    }
+
+    private static func captureHereDocumentBodiesVerbatim(
+        in commandLine: String,
+        from startIndex: String.Index,
+        hereDocuments: [PendingHereDocumentCapture]
+    ) throws -> (raw: String, endIndex: String.Index) {
+        var raw = ""
+        var index = startIndex
+
+        for hereDocument in hereDocuments {
+            var matched = false
+
+            while index < commandLine.endIndex {
+                let lineStart = index
+                while index < commandLine.endIndex, commandLine[index] != "\n" {
+                    index = commandLine.index(after: index)
+                }
+
+                let line = String(commandLine[lineStart..<index])
+                let comparisonSource = hereDocument.stripsLeadingTabs
+                    ? stripLeadingTabs(from: line)
+                    : line
+                let comparisonLine = comparisonSource.hasSuffix("\r")
+                    ? String(comparisonSource.dropLast())
+                    : comparisonSource
+
+                raw.append(contentsOf: line)
+                if index < commandLine.endIndex {
+                    raw.append("\n")
+                    index = commandLine.index(after: index)
+                }
+
+                if comparisonLine == hereDocument.delimiter {
+                    matched = true
+                    break
+                }
+            }
+
+            if !matched {
+                throw ShellError.parserError("unterminated here-document")
+            }
+        }
+
+        return (raw: raw, endIndex: index)
+    }
+
+    private static func stripLeadingTabs(from line: String) -> String {
+        String(line.drop { $0 == "\t" })
+    }
+
+    private static func trimmingTrailingNewlines(from string: String) -> String {
+        var output = string
+        while output.last == "\n" || output.last == "\r" {
+            output.removeLast()
+        }
+        return output
     }
 
     private static func captureArithmeticExpansion(

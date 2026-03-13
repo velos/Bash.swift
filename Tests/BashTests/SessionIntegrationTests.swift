@@ -458,6 +458,118 @@ struct SessionIntegrationTests {
         #expect(result.stdoutString == "hello\n")
     }
 
+    @Test("here document can write a file and feed a following command")
+    func hereDocumentWritesFileAndRunsFollowingCommand() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run(
+            """
+            cat > fib100.py <<'PY'
+            nums = []
+            a, b = 0, 1
+            for _ in range(5):
+                nums.append(a)
+                a, b = b, a + b
+            print('\\n'.join(map(str, nums)))
+            PY
+            cat fib100.py
+            """
+        )
+
+        #expect(result.exitCode == 0)
+        #expect(result.stderrString.isEmpty)
+        #expect(
+            result.stdoutString ==
+                """
+                nums = []
+                a, b = 0, 1
+                for _ in range(5):
+                    nums.append(a)
+                    a, b = b, a + b
+                print('\\n'.join(map(str, nums)))
+                """
+                + "\n"
+        )
+    }
+
+    @Test("quoted here document bodies stay literal")
+    func quotedHereDocumentBodiesStayLiteral() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run(
+            """
+            cat <<'EOF'
+            $(echo nope)
+            $HOME
+            EOF
+            """
+        )
+
+        #expect(result.exitCode == 0)
+        #expect(result.stdoutString == "$(echo nope)\n$HOME\n")
+    }
+
+    @Test("tab-stripped here documents remove only leading tabs")
+    func tabStrippedHereDocumentsRemoveOnlyLeadingTabs() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run(
+            """
+            cat <<-'EOF'
+             \tkeep-leading-space
+            \ttrim-leading-tab
+            \tEOF
+            """
+        )
+
+        #expect(result.exitCode == 0)
+        #expect(
+            result.stdoutString ==
+                """
+                 \tkeep-leading-space
+                trim-leading-tab
+                """
+                + "\n"
+        )
+    }
+
+    @Test("unquoted here documents expand shell substitutions")
+    func unquotedHereDocumentsExpandShellSubstitutions() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run(
+            """
+            export NAME=world
+            cat <<EOF
+            hello $NAME
+            math $((1 + 2))
+            sub $(printf hi)
+            escaped \\$NAME
+            joined one\\
+            two
+            EOF
+            """
+        )
+
+        #expect(result.exitCode == 0)
+        #expect(result.stderrString.isEmpty)
+        #expect(
+            result.stdoutString ==
+                """
+                hello world
+                math 3
+                sub hi
+                escaped $NAME
+                joined onetwo
+                """
+                + "\n"
+        )
+    }
+
     @Test("globbing expansion")
     func globbingExpansion() async throws {
         let (session, root) = try await TestSupport.makeSession()

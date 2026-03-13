@@ -237,6 +237,11 @@ public final actor BashSession {
         var error: ShellError?
     }
 
+    private struct PendingHereDocument {
+        var delimiter: String
+        var stripsLeadingTabs: Bool
+    }
+
     private struct FunctionDefinitionParseOutcome {
         var remaining: String
         var error: ShellError?
@@ -399,6 +404,7 @@ public final actor BashSession {
         var stderr = Data()
         var quote: QuoteKind = .none
         var index = commandLine.startIndex
+        var pendingHereDocuments: [PendingHereDocument] = []
 
         while index < commandLine.endIndex {
             let character = commandLine[index]
@@ -429,15 +435,60 @@ public final actor BashSession {
                 continue
             }
 
+            if quote == .none,
+               commandLine[index...].hasPrefix("<<"),
+               let hereDocument = Self.captureHereDocumentDeclaration(in: commandLine, from: index) {
+                output.append(contentsOf: commandLine[index..<hereDocument.endIndex])
+                pendingHereDocuments.append(
+                    PendingHereDocument(
+                        delimiter: hereDocument.delimiter,
+                        stripsLeadingTabs: hereDocument.stripsLeadingTabs
+                    )
+                )
+                index = hereDocument.endIndex
+                continue
+            }
+
+            if character == "\n" {
+                output.append(character)
+                index = commandLine.index(after: index)
+
+                if !pendingHereDocuments.isEmpty {
+                    do {
+                        let capture = try Self.captureHereDocumentBodiesVerbatim(
+                            in: commandLine,
+                            from: index,
+                            hereDocuments: pendingHereDocuments
+                        )
+                        output.append(contentsOf: capture.raw)
+                        index = capture.endIndex
+                        pendingHereDocuments.removeAll(keepingCapacity: true)
+                    } catch let shellError as ShellError {
+                        return CommandSubstitutionOutcome(
+                            commandLine: output,
+                            stderr: stderr,
+                            error: shellError
+                        )
+                    } catch {
+                        return CommandSubstitutionOutcome(
+                            commandLine: output,
+                            stderr: stderr,
+                            error: .parserError("\(error)")
+                        )
+                    }
+                }
+                continue
+            }
+
             if quote != .single, character == "$" {
+                if let arithmetic = Self.captureArithmeticExpansion(in: commandLine, from: index) {
+                    output.append(arithmetic.raw)
+                    index = arithmetic.endIndex
+                    continue
+                }
+
                 let next = commandLine.index(after: index)
                 if next < commandLine.endIndex, commandLine[next] == "(" {
-                    let secondOpen = commandLine.index(after: next)
-                    if secondOpen < commandLine.endIndex, commandLine[secondOpen] == "(" {
-                        output.append(character)
-                        index = commandLine.index(after: index)
-                        continue
-                    }
                     do {
                         let capture = try Self.captureCommandSubstitution(in: commandLine, from: index)
                         let evaluated = await evaluateCommandSubstitution(capture.content)
@@ -1758,6 +1809,175 @@ public final actor BashSession {
         }
 
         throw ShellError.parserError("unterminated command substitution")
+    }
+
+    private static func captureArithmeticExpansion(
+        in commandLine: String,
+        from dollarIndex: String.Index
+    ) -> (raw: String, endIndex: String.Index)? {
+        let open = commandLine.index(after: dollarIndex)
+        guard open < commandLine.endIndex, commandLine[open] == "(" else {
+            return nil
+        }
+
+        let secondOpen = commandLine.index(after: open)
+        guard secondOpen < commandLine.endIndex, commandLine[secondOpen] == "(" else {
+            return nil
+        }
+
+        var depth = 1
+        var cursor = commandLine.index(after: secondOpen)
+
+        while cursor < commandLine.endIndex {
+            if commandLine[cursor] == "(" {
+                let next = commandLine.index(after: cursor)
+                if next < commandLine.endIndex, commandLine[next] == "(" {
+                    depth += 1
+                    cursor = commandLine.index(after: next)
+                    continue
+                }
+            } else if commandLine[cursor] == ")" {
+                let next = commandLine.index(after: cursor)
+                if next < commandLine.endIndex, commandLine[next] == ")" {
+                    depth -= 1
+                    if depth == 0 {
+                        let end = commandLine.index(after: next)
+                        return (raw: String(commandLine[dollarIndex..<end]), endIndex: end)
+                    }
+                    cursor = commandLine.index(after: next)
+                    continue
+                }
+            }
+            cursor = commandLine.index(after: cursor)
+        }
+
+        return nil
+    }
+
+    private static func captureHereDocumentDeclaration(
+        in commandLine: String,
+        from operatorIndex: String.Index
+    ) -> (delimiter: String, stripsLeadingTabs: Bool, endIndex: String.Index)? {
+        let stripsLeadingTabs: Bool
+        let indexOffset: Int
+
+        if commandLine[operatorIndex...].hasPrefix("<<-") {
+            stripsLeadingTabs = true
+            indexOffset = 3
+        } else {
+            stripsLeadingTabs = false
+            indexOffset = 2
+        }
+
+        var index = commandLine.index(operatorIndex, offsetBy: indexOffset)
+
+        while index < commandLine.endIndex,
+              commandLine[index].isWhitespace,
+              commandLine[index] != "\n" {
+            index = commandLine.index(after: index)
+        }
+
+        guard index < commandLine.endIndex, commandLine[index] != "\n" else {
+            return nil
+        }
+
+        var delimiter = ""
+        var quote: QuoteKind = .none
+        var consumedAny = false
+
+        while index < commandLine.endIndex {
+            let character = commandLine[index]
+
+            if quote == .none, character.isWhitespace {
+                break
+            }
+
+            if character == "'", quote != .double {
+                quote = quote == .single ? .none : .single
+                consumedAny = true
+                index = commandLine.index(after: index)
+                continue
+            }
+
+            if character == "\"", quote != .single {
+                quote = quote == .double ? .none : .double
+                consumedAny = true
+                index = commandLine.index(after: index)
+                continue
+            }
+
+            if character == "\\", quote != .single {
+                let next = commandLine.index(after: index)
+                if next < commandLine.endIndex {
+                    delimiter.append(commandLine[next])
+                    index = commandLine.index(after: next)
+                } else {
+                    delimiter.append(character)
+                    index = next
+                }
+                consumedAny = true
+                continue
+            }
+
+            delimiter.append(character)
+            consumedAny = true
+            index = commandLine.index(after: index)
+        }
+
+        guard consumedAny, quote == .none else {
+            return nil
+        }
+
+        return (delimiter: delimiter, stripsLeadingTabs: stripsLeadingTabs, endIndex: index)
+    }
+
+    private static func captureHereDocumentBodiesVerbatim(
+        in commandLine: String,
+        from startIndex: String.Index,
+        hereDocuments: [PendingHereDocument]
+    ) throws -> (raw: String, endIndex: String.Index) {
+        var raw = ""
+        var index = startIndex
+
+        for hereDocument in hereDocuments {
+            var matched = false
+
+            while index < commandLine.endIndex {
+                let lineStart = index
+                while index < commandLine.endIndex, commandLine[index] != "\n" {
+                    index = commandLine.index(after: index)
+                }
+
+                let line = String(commandLine[lineStart..<index])
+                let comparisonSource = hereDocument.stripsLeadingTabs
+                    ? Self.stripLeadingTabs(from: line)
+                    : line
+                let comparisonLine = comparisonSource.hasSuffix("\r")
+                    ? String(comparisonSource.dropLast())
+                    : comparisonSource
+
+                raw.append(contentsOf: line)
+                if index < commandLine.endIndex {
+                    raw.append("\n")
+                    index = commandLine.index(after: index)
+                }
+
+                if comparisonLine == hereDocument.delimiter {
+                    matched = true
+                    break
+                }
+            }
+
+            if !matched {
+                throw ShellError.parserError("unterminated here-document")
+            }
+        }
+
+        return (raw: raw, endIndex: index)
+    }
+
+    private static func stripLeadingTabs(from line: String) -> String {
+        String(line.drop { $0 == "\t" })
     }
 
     private static func parseFunctionDefinitions(

@@ -249,7 +249,7 @@ Execution pipeline:
 
 - Quoting and escaping (`'...'`, `"..."`, `\\`)
 - Pipes: `cmd1 | cmd2`
-- Redirections: `>`, `>>`, `<`, `2>`, `2>&1`
+- Redirections: `>`, `>>`, `<`, `<<`, `<<-`, `2>`, `2>&1`
 - Command chaining: `&&`, `||`, `;`
 - Background execution: `&` with `jobs`, `fg`, `wait`
 - Command substitution: `$(...)` (including nested forms)
