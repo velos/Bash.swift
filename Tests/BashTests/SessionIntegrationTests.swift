@@ -250,6 +250,53 @@ struct SessionIntegrationTests {
         #expect(result.stdoutString == "ok\n")
     }
 
+    @Test("executable script path runs after chmod")
+    func executableScriptPathRunsAfterChmod() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let write = await session.run(
+            """
+            cat > hello.sh <<'EOF'
+            #!/bin/bash
+            echo "Hello, World! This script was executed successfully."
+            EOF
+            """
+        )
+        #expect(write.exitCode == 0)
+
+        let result = await session.run("chmod +x hello.sh && ./hello.sh")
+        #expect(result.exitCode == 0)
+        #expect(result.stdoutString == "Hello, World! This script was executed successfully.\n")
+        #expect(result.stderrString.isEmpty)
+    }
+
+    @Test("executable script path uses isolated shell state")
+    func executableScriptPathUsesIsolatedShellState() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        _ = await session.run("mkdir -p nested")
+        let write = await session.run(
+            """
+            cat > mutate.sh <<'EOF'
+            cd nested
+            export SCRIPT_VALUE=leaked
+            echo "$PWD" > script_pwd.txt
+            EOF
+            """
+        )
+        #expect(write.exitCode == 0)
+
+        let result = await session.run("chmod +x mutate.sh && ./mutate.sh; pwd; printenv SCRIPT_VALUE")
+        #expect(result.exitCode == 1)
+        #expect(result.stdoutString == "/home/user\n")
+
+        let file = await session.run("cat nested/script_pwd.txt")
+        #expect(file.exitCode == 0)
+        #expect(file.stdoutString == "/home/user/nested\n")
+    }
+
     @Test("command builtin queries and runs builtins")
     func commandBuiltinQueriesAndRunsBuiltins() async throws {
         let (session, root) = try await TestSupport.makeSession()

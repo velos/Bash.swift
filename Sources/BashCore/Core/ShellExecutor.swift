@@ -519,6 +519,26 @@ package enum ShellExecutor {
                 secretTracker: secretTracker,
                 secretOutputRedactor: secretOutputRedactor
             )
+        } else if commandName.contains("/") {
+            result = await executeScriptFile(
+                commandName: commandName,
+                arguments: commandArgs,
+                stdin: input,
+                filesystem: commandFilesystem,
+                currentDirectory: currentDirectory,
+                environment: environment,
+                history: history,
+                commandRegistry: commandRegistry,
+                shellFunctions: shellFunctions,
+                enableGlobbing: enableGlobbing,
+                jobControl: jobControl,
+                permissionAuthorizer: permissionAuthorizer,
+                executionControl: executionControl,
+                secretPolicy: secretPolicy,
+                secretResolver: secretResolver,
+                secretTracker: secretTracker,
+                secretOutputRedactor: secretOutputRedactor
+            )
         } else {
             restoreScopedAssignments()
             stderr.append(Data("\(commandName): command not found\n".utf8))
@@ -1007,6 +1027,122 @@ package enum ShellExecutor {
 
         currentDirectory = execution.currentDirectory
         environment = execution.environment
+        return execution.result
+    }
+
+    private static func executeScriptFile(
+        commandName: String,
+        arguments: [String],
+        stdin: Data,
+        filesystem: any FileSystem,
+        currentDirectory: String,
+        environment: [String: String],
+        history: [String],
+        commandRegistry: [String: AnyBuiltinCommand],
+        shellFunctions: [String: String],
+        enableGlobbing: Bool,
+        jobControl: (any ShellJobControlling)?,
+        permissionAuthorizer: any ShellPermissionAuthorizing,
+        executionControl: ExecutionControl?,
+        secretPolicy: SecretHandlingPolicy,
+        secretResolver: (any SecretReferenceResolving)?,
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
+    ) async -> CommandResult {
+        let path: WorkspacePath
+        do {
+            path = try WorkspacePath(
+                validating: commandName,
+                relativeTo: WorkspacePath(normalizing: currentDirectory)
+            )
+        } catch {
+            return CommandResult(
+                stdout: Data(),
+                stderr: Data("\(commandName): \(error)\n".utf8),
+                exitCode: 127
+            )
+        }
+
+        let info: FileInfo
+        do {
+            info = try await filesystem.stat(path: path)
+        } catch {
+            return CommandResult(
+                stdout: Data(),
+                stderr: Data("\(commandName): \(error)\n".utf8),
+                exitCode: 127
+            )
+        }
+
+        guard !info.isDirectory else {
+            return CommandResult(
+                stdout: Data(),
+                stderr: Data("\(commandName): is a directory\n".utf8),
+                exitCode: 126
+            )
+        }
+
+        guard info.permissionBits & 0o111 != 0 else {
+            return CommandResult(
+                stdout: Data(),
+                stderr: Data("\(commandName): Permission denied\n".utf8),
+                exitCode: 126
+            )
+        }
+
+        let data: Data
+        do {
+            data = try await filesystem.readFile(path: path)
+        } catch {
+            return CommandResult(
+                stdout: Data(),
+                stderr: Data("\(commandName): \(error)\n".utf8),
+                exitCode: 126
+            )
+        }
+
+        guard let script = String(data: data, encoding: .utf8) else {
+            return CommandResult(
+                stdout: Data(),
+                stderr: Data("\(commandName): cannot execute binary file\n".utf8),
+                exitCode: 126
+            )
+        }
+
+        let parsed: ParsedLine
+        do {
+            parsed = try ShellParser.parse(script)
+        } catch {
+            return CommandResult(
+                stdout: Data(),
+                stderr: Data("\(commandName): \(error)\n".utf8),
+                exitCode: 2
+            )
+        }
+
+        let scriptDirectory = currentDirectory
+        var scriptEnvironment = environment
+        applyPositionalParameters(arguments, to: &scriptEnvironment)
+        scriptEnvironment["0"] = commandName
+
+        let execution = await execute(
+            parsedLine: parsed,
+            stdin: stdin,
+            filesystem: filesystem,
+            currentDirectory: scriptDirectory,
+            environment: scriptEnvironment,
+            history: history,
+            commandRegistry: commandRegistry,
+            shellFunctions: shellFunctions,
+            enableGlobbing: enableGlobbing,
+            jobControl: jobControl,
+            permissionAuthorizer: permissionAuthorizer,
+            executionControl: executionControl,
+            secretPolicy: secretPolicy,
+            secretResolver: secretResolver,
+            secretTracker: secretTracker,
+            secretOutputRedactor: secretOutputRedactor
+        )
         return execution.result
     }
 
