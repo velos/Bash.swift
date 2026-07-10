@@ -17,9 +17,9 @@ concurrency:
 
 jobs:
   swift-build:
-    name: Swift Build
+    name: Swift Build & Test
     runs-on: macos-latest
-    timeout-minutes: 15
+    timeout-minutes: 40
 
     permissions:
       actions: read
@@ -37,6 +37,10 @@ jobs:
       - name: Show Swift version
         run: swift --version
 
-      - name: Build package and tests
+      - name: Build package and tests (default traits)
         shell: bash
         run: swift build --build-tests
+
+      - name: Run tests (all traits)
+        shell: bash
+        run: swift test --parallel --traits Git,Python,SQLite,Secrets
