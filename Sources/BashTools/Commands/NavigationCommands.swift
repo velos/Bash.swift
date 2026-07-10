@@ -167,7 +167,7 @@ struct EnvCommand: BuiltinCommand {
     static let overview = "Run a program in a modified environment"
 
     static func run(context: inout CommandContext, options: Options) async -> Int32 {
-        for key in context.environment.keys.sorted() {
+        for key in context.environment.keys.sorted() where ShellExpansion.isEnvironmentVariableName(key) {
             context.writeStdout("\(key)=\(context.environment[key] ?? "")\n")
         }
         return 0
@@ -185,7 +185,7 @@ struct ExportCommand: BuiltinCommand {
 
     static func run(context: inout CommandContext, options: Options) async -> Int32 {
         guard !options.values.isEmpty else {
-            for key in context.environment.keys.sorted() {
+            for key in context.environment.keys.sorted() where ShellExpansion.isEnvironmentVariableName(key) {
                 context.writeStdout("declare -x \(key)=\"\(context.environment[key] ?? "")\"\n")
             }
             return 0
@@ -1404,7 +1404,7 @@ struct PrintenvCommand: BuiltinCommand {
 
     static func run(context: inout CommandContext, options: Options) async -> Int32 {
         if options.keys.isEmpty {
-            for key in context.environment.keys.sorted() {
+            for key in context.environment.keys.sorted() where ShellExpansion.isEnvironmentVariableName(key) {
                 context.writeStdout("\(key)=\(context.environment[key] ?? "")\n")
             }
             return 0

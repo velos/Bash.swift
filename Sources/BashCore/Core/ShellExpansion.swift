@@ -171,6 +171,18 @@ package enum ShellExpansion {
         environment["?"] ?? "0"
     }
 
+    /// Whether an environment key names an ordinary shell variable (a valid
+    /// identifier) rather than a special parameter such as `?`, `!`, `@`, `*`,
+    /// `#`, or a positional parameter. Special parameters are stored in the
+    /// environment dictionary for expansion but, like bash, must not be listed
+    /// by `env` / `printenv` / `export`.
+    package static func isEnvironmentVariableName(_ key: String) -> Bool {
+        guard let first = key.first, first == "_" || first.isLetter else {
+            return false
+        }
+        return key.dropFirst().allSatisfy { $0 == "_" || $0.isLetter || $0.isNumber }
+    }
+
     private static func lookupParameter(_ key: String, in environment: [String: String]) -> String? {
         if key == "?" {
             return lastExitStatus(in: environment)
@@ -178,7 +190,7 @@ package enum ShellExpansion {
         return environment[key]
     }
 
-    private static func captureArithmeticExpansion(
+    package static func captureArithmeticExpansion(
         in string: String,
         secondOpen: String.Index
     ) -> (expression: String, endIndex: String.Index)? {

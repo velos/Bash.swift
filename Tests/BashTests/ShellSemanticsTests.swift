@@ -199,4 +199,83 @@ struct ShellSemanticsTests {
         let heredoc = await session.run("cat << EOF\nstatus=$?\nEOF")
         #expect(TestSupport.text(heredoc.stdout) == "status=1\n")
     }
+
+    @Test("special parameters do not leak into env/printenv/export")
+    func specialParametersDoNotLeakIntoEnv() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        // Ensure $? has been assigned by a prior failing command.
+        _ = await session.run("false")
+
+        let env = await session.run("env")
+        #expect(env.exitCode == 0)
+        let envLines = TestSupport.text(env.stdout).split(separator: "\n").map(String.init)
+        #expect(!envLines.contains { $0.hasPrefix("?=") })
+        #expect(envLines.contains { $0.hasPrefix("HOME=") })
+
+        let printenv = await session.run("printenv")
+        #expect(!TestSupport.text(printenv.stdout).split(separator: "\n").contains { $0.hasPrefix("?=") })
+
+        let export = await session.run("export")
+        #expect(!TestSupport.text(export.stdout).contains("declare -x ?="))
+
+        // Explicit lookup of a normal variable still works.
+        _ = await session.run("export EXPORTED_VAR=value")
+        let explicit = await session.run("printenv EXPORTED_VAR")
+        #expect(TestSupport.text(explicit.stdout) == "value\n")
+    }
+
+    @Test("redirection target ignores inline assignment prefix")
+    func redirectionTargetIgnoresInlineAssignment() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        _ = await session.run("TARGET=base.txt")
+        // bash expands the redirection target before applying the temporary
+        // assignment, so this writes to base.txt, not overlay.txt.
+        let redirect = await session.run("TARGET=overlay.txt echo hi > $TARGET")
+        #expect(redirect.exitCode == 0)
+
+        let base = await session.run("cat base.txt")
+        #expect(TestSupport.text(base.stdout) == "hi\n")
+        let overlay = await session.run("cat overlay.txt")
+        #expect(overlay.exitCode != 0)
+    }
+
+    @Test("redirection target with spaces is not word split")
+    func redirectionTargetWithSpacesIsNotWordSplit() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        _ = await session.run("NAME=\"my file\"")
+        let write = await session.run("echo content > $NAME")
+        #expect(write.exitCode == 0)
+
+        let read = await session.run("cat \"my file\"")
+        #expect(TestSupport.text(read.stdout) == "content\n")
+    }
+
+    @Test("output is preserved when a redirection write fails")
+    func outputPreservedWhenRedirectionWriteFails() async throws {
+        // Deny filesystem writes so the redirection target write fails
+        // deterministically regardless of the backing filesystem.
+        let (session, root) = try await TestSupport.makeSession(
+            permissionHandler: { request in
+                switch request.kind {
+                case .filesystem:
+                    return .deny(message: "filesystem write denied")
+                case .network:
+                    return .allow
+                }
+            }
+        )
+        defer { TestSupport.removeDirectory(root) }
+
+        let result = await session.run("echo important > out.txt")
+        #expect(result.exitCode == 1)
+        #expect(TestSupport.text(result.stderr).contains("filesystem write denied"))
+        // The command output is not silently dropped when the write fails.
+        #expect(TestSupport.text(result.stdout).contains("important"))
+    }
 }

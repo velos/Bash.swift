@@ -1153,23 +1153,30 @@ extension BashSession {
             stderr: result.stderr
         )
 
-        result.stdout = routed.stdout
-        result.stderr = routed.stderr
+        let base = WorkspacePath(normalizing: currentDirectoryStore)
+        var writeFailed = false
+        var writeErrors = Data()
         for write in routed.writes {
-            let path = WorkspacePath(
-                normalizing: write.path,
-                relativeTo: WorkspacePath(normalizing: currentDirectoryStore)
-            )
             do {
                 try await filesystemStore.writeFile(
-                    path: path,
+                    path: WorkspacePath(normalizing: write.path, relativeTo: base),
                     data: write.data,
                     append: write.append
                 )
             } catch {
-                result.stderr.append(Data("\(write.path): \(error)\n".utf8))
-                result.exitCode = 1
+                writeErrors.append(Data("\(write.path): \(error)\n".utf8))
+                writeFailed = true
             }
+        }
+
+        if writeFailed {
+            // Preserve the command's buffered output rather than dropping it
+            // when a redirection target cannot be written.
+            result.stderr.append(writeErrors)
+            result.exitCode = 1
+        } else {
+            result.stdout = routed.stdout
+            result.stderr = routed.stderr
         }
     }
 
