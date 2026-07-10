@@ -717,101 +717,13 @@ extension BashSession {
         _ word: ShellWord,
         environment: [String: String]
     ) -> String {
-        var output = ""
-        for part in word.parts {
-            switch part.quote {
-            case .single:
-                output.append(part.text)
-            case .none, .double:
-                output.append(expandVariables(in: part.text, environment: environment))
-            }
-        }
-        return output
+        ShellExpansion.expandJoined(word, environment: environment)
     }
 
     static func expandVariables(
         in string: String,
         environment: [String: String]
     ) -> String {
-        var result = ""
-        var index = string.startIndex
-
-        func readIdentifier(startingAt start: String.Index) -> (String, String.Index) {
-            var cursor = start
-            var value = ""
-            while cursor < string.endIndex {
-                let character = string[cursor]
-                if character.isLetter || character.isNumber || character == "_" {
-                    value.append(character)
-                    cursor = string.index(after: cursor)
-                } else {
-                    break
-                }
-            }
-            return (value, cursor)
-        }
-
-        while index < string.endIndex {
-            let character = string[index]
-            guard character == "$" else {
-                result.append(character)
-                index = string.index(after: index)
-                continue
-            }
-
-            let next = string.index(after: index)
-            guard next < string.endIndex else {
-                result.append("$")
-                break
-            }
-
-            if string[next] == "!" {
-                result += environment["!"] ?? ""
-                index = string.index(after: next)
-                continue
-            }
-
-            if string[next] == "@" || string[next] == "*" || string[next] == "#" {
-                result += environment[String(string[next])] ?? ""
-                index = string.index(after: next)
-                continue
-            }
-
-            if string[next] == "{" {
-                guard let close = string[next...].firstIndex(of: "}") else {
-                    result.append("$")
-                    index = next
-                    continue
-                }
-
-                let contentStart = string.index(after: next)
-                let content = String(string[contentStart..<close])
-                if let fallbackRange = content.range(of: ":-") {
-                    let key = String(content[..<fallbackRange.lowerBound])
-                    let fallback = String(content[fallbackRange.upperBound...])
-                    let resolved = environment[key]
-                    if let resolved, !resolved.isEmpty {
-                        result += resolved
-                    } else {
-                        result += fallback
-                    }
-                } else {
-                    result += environment[content] ?? ""
-                }
-                index = string.index(after: close)
-                continue
-            }
-
-            let (name, endIndex) = readIdentifier(startingAt: next)
-            if name.isEmpty {
-                result.append("$")
-                index = next
-            } else {
-                result += environment[name] ?? ""
-                index = endIndex
-            }
-        }
-
-        return result
+        ShellExpansion.expandVariables(in: string, environment: environment)
     }
 }
