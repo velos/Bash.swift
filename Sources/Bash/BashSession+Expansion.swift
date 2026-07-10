@@ -717,13 +717,56 @@ extension BashSession {
         _ word: ShellWord,
         environment: [String: String]
     ) -> String {
-        ShellExpansion.expandJoined(word, environment: environment)
+        expandWordVariants(word, environment: environment).joined(separator: " ")
+    }
+
+    static func expandWordValues(
+        _ word: ShellWord,
+        environment: [String: String]
+    ) -> [String] {
+        // Field-split unquoted expansions (so `for x in $var` iterates each
+        // word) and then apply brace expansion to each field (so `a{1,2}`
+        // expands), combining both behaviors for loop and argument lists.
+        ShellExpansion.expandFields(word, environment: environment).flatMap {
+            BraceExpansion.expand($0)
+        }
+    }
+
+    private static func expandWordVariants(
+        _ word: ShellWord,
+        environment: [String: String]
+    ) -> [String] {
+        var variants = [""]
+        for part in word.parts {
+            let partValues: [String]
+            switch part.quote {
+            case .single:
+                partValues = [part.text]
+            case .double:
+                partValues = [expandVariables(in: part.text, environment: environment)]
+            case .none:
+                partValues = BraceExpansion.expand(part.text).map {
+                    expandVariables(in: $0, environment: environment)
+                }
+            }
+
+            var combined: [String] = []
+            for prefix in variants {
+                for value in partValues {
+                    combined.append(prefix + value)
+                }
+            }
+            variants = combined
+        }
+        return variants
     }
 
     static func expandVariables(
         in string: String,
         environment: [String: String]
     ) -> String {
+        // Delegate to the shared expander so `$?`, `${?}`, `${:-}`, arithmetic
+        // expansion, and the special parameters stay defined in one place.
         ShellExpansion.expandVariables(in: string, environment: environment)
     }
 }

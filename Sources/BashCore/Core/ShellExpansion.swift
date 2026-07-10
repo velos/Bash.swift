@@ -171,12 +171,21 @@ package enum ShellExpansion {
         environment["?"] ?? "0"
     }
 
+    /// Prefix used for internal bookkeeping keys stored in the environment
+    /// dictionary (shell options, function depth, local-binding markers, ...).
+    /// These are implementation details and must never be user-visible.
+    package static let internalKeyPrefix = "__BASHSWIFT_"
+
     /// Whether an environment key names an ordinary shell variable (a valid
     /// identifier) rather than a special parameter such as `?`, `!`, `@`, `*`,
-    /// `#`, or a positional parameter. Special parameters are stored in the
-    /// environment dictionary for expansion but, like bash, must not be listed
-    /// by `env` / `printenv` / `export`.
+    /// `#`, a positional parameter, or an internal bookkeeping key. Special
+    /// parameters and internal keys are stored in the environment dictionary
+    /// for expansion/state but, like bash, must not be listed by
+    /// `env` / `printenv` / `export`.
     package static func isEnvironmentVariableName(_ key: String) -> Bool {
+        guard !key.hasPrefix(internalKeyPrefix) else {
+            return false
+        }
         guard let first = key.first, first == "_" || first.isLetter else {
             return false
         }

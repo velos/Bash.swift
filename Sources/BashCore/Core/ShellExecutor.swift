@@ -13,6 +13,24 @@ private struct TextExpansionOutcome: Sendable {
     var failure: ExecutionFailure?
 }
 
+private struct WordExpansionOutcome: Sendable {
+    var words: [String]
+    var stderr: Data
+    var error: ShellError?
+    var failure: ExecutionFailure?
+}
+
+package enum ShellOptionKeys {
+    package static let pipefail = "__BASHSWIFT_SHELLOPT_PIPEFAIL"
+    package static let errexit = "__BASHSWIFT_SHELLOPT_ERREXIT"
+    package static let nounset = "__BASHSWIFT_SHELLOPT_NOUNSET"
+    package static let xtrace = "__BASHSWIFT_SHELLOPT_XTRACE"
+}
+
+package enum ShellInternalKeys {
+    package static let exitRequested = "__BASHSWIFT_INTERNAL_EXIT_REQUESTED"
+}
+
 package enum ShellExecutor {
     package static func execute(
         parsedLine: ParsedLine,
@@ -47,7 +65,7 @@ package enum ShellExecutor {
         var aggregateErr = Data()
         var lastExitCode: Int32 = 0
 
-        for segment in parsedLine.segments {
+        for (offset, segment) in parsedLine.segments.enumerated() {
             if let failure = await executionControl?.checkpoint() {
                 lastExitCode = failure.exitCode
                 aggregateErr.append(Data("\(failure.message)\n".utf8))
@@ -138,6 +156,21 @@ package enum ShellExecutor {
             aggregateErr.append(segmentResult.stderr)
             lastExitCode = segmentResult.exitCode
             environment["?"] = String(lastExitCode)
+
+            if environment.removeValue(forKey: ShellInternalKeys.exitRequested) != nil {
+                break
+            }
+
+            let nextConnector = parsedLine.segments.indices.contains(offset + 1)
+                ? parsedLine.segments[offset + 1].connector
+                : nil
+            if shouldExitForErrexit(
+                environment: environment,
+                exitCode: lastExitCode,
+                nextConnector: nextConnector
+            ) {
+                break
+            }
         }
 
         return ShellExecutionResult(
@@ -162,6 +195,23 @@ package enum ShellExecutor {
         }
     }
 
+    private static func shouldExitForErrexit(
+        environment: [String: String],
+        exitCode: Int32,
+        nextConnector: ChainOperator?
+    ) -> Bool {
+        guard environment[ShellOptionKeys.errexit] == "1", exitCode != 0 else {
+            return false
+        }
+
+        switch nextConnector {
+        case .and, .or:
+            return false
+        case .sequence, nil:
+            return true
+        }
+    }
+
     private static func executePipeline(
         commands: [ParsedCommand],
         initialInput: Data,
@@ -183,6 +233,7 @@ package enum ShellExecutor {
         var nextInput = initialInput
         var aggregateStderr = Data()
         var lastResult = CommandResult(stdout: Data(), stderr: Data(), exitCode: 0)
+        var pipefailExitCode: Int32 = 0
 
         for command in commands {
             var commandResult = await executeSingleCommand(
@@ -205,12 +256,18 @@ package enum ShellExecutor {
             )
 
             aggregateStderr.append(commandResult.stderr)
+            if commandResult.exitCode != 0 {
+                pipefailExitCode = commandResult.exitCode
+            }
             nextInput = commandResult.stdout
             commandResult.stderr = Data()
             lastResult = commandResult
         }
 
         lastResult.stderr = aggregateStderr
+        if environment[ShellOptionKeys.pipefail] == "1", pipefailExitCode != 0 {
+            lastResult.exitCode = pipefailExitCode
+        }
         return lastResult
     }
 
@@ -285,13 +342,31 @@ package enum ShellExecutor {
             }
 
             guard let targetWord = redirection.target else { continue }
-            let target = await firstExpansion(
+            let targetExpansion = await firstExpansion(
                 word: targetWord,
                 filesystem: expansionFilesystem,
                 currentDirectory: currentDirectory,
                 environment: environment,
-                enableGlobbing: enableGlobbing
+                history: history,
+                commandRegistry: commandRegistry,
+                shellFunctions: shellFunctions,
+                enableGlobbing: enableGlobbing,
+                permissionAuthorizer: permissionAuthorizer,
+                executionControl: executionControl,
+                secretPolicy: secretPolicy,
+                secretResolver: secretResolver,
+                secretTracker: secretTracker,
+                secretOutputRedactor: secretOutputRedactor
             )
+            stderr.append(targetExpansion.stderr)
+            if let failure = targetExpansion.failure {
+                return CommandResult(stdout: Data(), stderr: stderr, exitCode: failure.exitCode)
+            }
+            if let error = targetExpansion.error {
+                stderr.append(Data("\(error)\n".utf8))
+                return CommandResult(stdout: Data(), stderr: stderr, exitCode: 2)
+            }
+            let target = targetExpansion.text
 
             do {
                 input = try await expansionFilesystem.readFile(
@@ -303,51 +378,101 @@ package enum ShellExecutor {
             }
         }
 
+        // Detect leading `NAME=value` assignment prefixes on the raw words,
+        // before expansion, so their values are taken verbatim without field
+        // splitting (`FOO=$BAR cmd` assigns the whole value even when `$BAR`
+        // contains spaces), matching bash. Assignment values still undergo
+        // parameter/brace/process-substitution expansion, just not splitting.
+        // The assignments are NOT applied to the environment used to expand the
+        // command's own words — `EXP=after echo $EXP` prints the old value —
+        // but each assignment's value does see earlier assignments on the same
+        // line (`A=1 B=$A`), so they accumulate in a scratch environment.
         var commandWords = command.words[...]
-        var inlineAssignments: [(name: String, value: String)] = []
-        // Assignments evaluate left to right with earlier assignments visible
-        // to later values (`A=1 B=$A` sets B to 1), like bash.
+        var pendingAssignments: [(name: String, value: String)] = []
         var assignmentEnvironment = environment
-        while let word = commandWords.first,
-              let assignment = expandAssignmentWord(word, environment: assignmentEnvironment) {
-            inlineAssignments.append(assignment)
+        while let word = commandWords.first, isAssignmentWord(word) {
+            let assignmentExpansion = await expandWord(
+                word,
+                filesystem: expansionFilesystem,
+                currentDirectory: currentDirectory,
+                environment: assignmentEnvironment,
+                history: history,
+                commandRegistry: commandRegistry,
+                shellFunctions: shellFunctions,
+                enableGlobbing: enableGlobbing,
+                splitFields: false,
+                permissionAuthorizer: permissionAuthorizer,
+                executionControl: executionControl,
+                secretPolicy: secretPolicy,
+                secretResolver: secretResolver,
+                secretTracker: secretTracker,
+                secretOutputRedactor: secretOutputRedactor
+            )
+            stderr.append(assignmentExpansion.stderr)
+            if let failure = assignmentExpansion.failure {
+                return CommandResult(stdout: Data(), stderr: stderr, exitCode: failure.exitCode)
+            }
+            if let error = assignmentExpansion.error {
+                stderr.append(Data("\(error)\n".utf8))
+                return CommandResult(stdout: Data(), stderr: stderr, exitCode: 2)
+            }
+            guard let assignment = parseAssignment(assignmentExpansion.words.first ?? "") else {
+                break
+            }
+            pendingAssignments.append((name: assignment.name, value: assignment.value))
             assignmentEnvironment[assignment.name] = assignment.value
             commandWords = commandWords.dropFirst()
         }
 
-        // Redirection targets are expanded before inline assignments take
-        // effect (bash performs redirections before applying the temporary
-        // `VAR=value` environment), so resolve them against the environment as
-        // it stands prior to those assignments.
-        let redirectionEnvironment = environment
-
-        let expandedWords = await expandWords(
+        // Expand the command's own words against the environment *before* the
+        // temporary assignments take effect.
+        let wordExpansion = await expandWords(
             Array(commandWords),
             filesystem: expansionFilesystem,
             currentDirectory: currentDirectory,
             environment: environment,
-            enableGlobbing: enableGlobbing
+            history: history,
+            commandRegistry: commandRegistry,
+            shellFunctions: shellFunctions,
+            enableGlobbing: enableGlobbing,
+            permissionAuthorizer: permissionAuthorizer,
+            executionControl: executionControl,
+            secretPolicy: secretPolicy,
+            secretResolver: secretResolver,
+            secretTracker: secretTracker,
+            secretOutputRedactor: secretOutputRedactor
         )
+        stderr.append(wordExpansion.stderr)
+        if let failure = wordExpansion.failure {
+            return CommandResult(stdout: Data(), stderr: stderr, exitCode: failure.exitCode)
+        }
+        if let error = wordExpansion.error {
+            stderr.append(Data("\(error)\n".utf8))
+            return CommandResult(stdout: Data(), stderr: stderr, exitCode: 2)
+        }
+        let expandedWords = wordExpansion.words
+
+        // Apply the assignment prefixes now. For a statement with a command
+        // word they are temporary (restored afterward); for an assignment-only
+        // statement they persist in the shell environment.
+        var scopedAssignments: [(name: String, previousValue: String?)] = []
+        for assignment in pendingAssignments {
+            scopedAssignments.append((name: assignment.name, previousValue: environment[assignment.name]))
+            environment[assignment.name] = assignment.value
+        }
+
+        func restoreScopedAssignments() {
+            for assignment in scopedAssignments.reversed() {
+                if let previousValue = assignment.previousValue {
+                    environment[assignment.name] = previousValue
+                } else {
+                    environment.removeValue(forKey: assignment.name)
+                }
+            }
+        }
 
         guard let commandName = expandedWords.first else {
-            // Assignment-only statement: the assignments persist in the shell
-            // environment.
-            guard !inlineAssignments.isEmpty || !command.redirections.isEmpty else {
-                return CommandResult(stdout: Data(), stderr: Data(), exitCode: 0)
-            }
-            var result = CommandResult(stdout: Data(), stderr: Data(), exitCode: 0)
-            await applyOutputRedirections(
-                command.redirections,
-                result: &result,
-                filesystem: expansionFilesystem,
-                currentDirectory: currentDirectory,
-                environment: redirectionEnvironment,
-                enableGlobbing: enableGlobbing
-            )
-            for assignment in inlineAssignments {
-                environment[assignment.name] = assignment.value
-            }
-            return result
+            return CommandResult(stdout: Data(), stderr: stderr, exitCode: 0)
         }
 
         let commandArgs = Array(expandedWords.dropFirst())
@@ -358,36 +483,36 @@ package enum ShellExecutor {
             executionControl: executionControl
         )
 
-        // Inline assignment prefixes apply only for the duration of this
-        // command and are applied after word expansion, matching bash's
-        // `VAR=value command` semantics.
-        var inlineAssignmentSnapshot: [(name: String, previousValue: String?)] = []
-        if !inlineAssignments.isEmpty {
-            inlineAssignmentSnapshot = inlineAssignments.map {
-                (name: $0.name, previousValue: environment[$0.name])
-            }
-            for assignment in inlineAssignments {
-                environment[assignment.name] = assignment.value
-            }
-        }
-        defer {
-            for (name, previousValue) in inlineAssignmentSnapshot.reversed() {
-                if let previousValue {
-                    environment[name] = previousValue
-                } else {
-                    environment.removeValue(forKey: name)
-                }
-            }
-        }
-
         var result: CommandResult
         if commandName == "local" {
             result = executeLocalBuiltin(commandArgs, environment: &environment)
+        } else if commandName == "source" || commandName == "." {
+            result = await executeSourceBuiltin(
+                commandName: commandName,
+                args: commandArgs,
+                stdin: input,
+                filesystem: commandFilesystem,
+                currentDirectory: &currentDirectory,
+                environment: &environment,
+                history: history,
+                commandRegistry: commandRegistry,
+                shellFunctions: shellFunctions,
+                enableGlobbing: enableGlobbing,
+                jobControl: jobControl,
+                permissionAuthorizer: permissionAuthorizer,
+                executionControl: executionControl,
+                secretPolicy: secretPolicy,
+                secretResolver: secretResolver,
+                secretTracker: secretTracker,
+                secretOutputRedactor: secretOutputRedactor
+            )
         } else if let implementation = resolveCommand(named: commandName, registry: commandRegistry) {
             if let failure = await executionControl?.recordCommandExecution(commandName: commandName) {
+                restoreScopedAssignments()
+                stderr.append(Data("\(failure.message)\n".utf8))
                 return CommandResult(
                     stdout: Data(),
-                    stderr: Data("\(failure.message)\n".utf8),
+                    stderr: stderr,
                     exitCode: failure.exitCode
                 )
             }
@@ -439,33 +564,87 @@ package enum ShellExecutor {
                 secretTracker: secretTracker,
                 secretOutputRedactor: secretOutputRedactor
             )
+        } else if commandName.contains("/") {
+            result = await executeScriptFile(
+                commandName: commandName,
+                arguments: commandArgs,
+                stdin: input,
+                filesystem: commandFilesystem,
+                currentDirectory: currentDirectory,
+                environment: environment,
+                history: history,
+                commandRegistry: commandRegistry,
+                shellFunctions: shellFunctions,
+                enableGlobbing: enableGlobbing,
+                jobControl: jobControl,
+                permissionAuthorizer: permissionAuthorizer,
+                executionControl: executionControl,
+                secretPolicy: secretPolicy,
+                secretResolver: secretResolver,
+                secretTracker: secretTracker,
+                secretOutputRedactor: secretOutputRedactor
+            )
         } else {
-            let message = "\(commandName): command not found\n"
-            return CommandResult(stdout: Data(), stderr: Data(message.utf8), exitCode: 127)
+            restoreScopedAssignments()
+            stderr.append(Data("\(commandName): command not found\n".utf8))
+            return CommandResult(stdout: Data(), stderr: stderr, exitCode: 127)
         }
 
-        await applyOutputRedirections(
+        restoreScopedAssignments()
+        if !stderr.isEmpty {
+            stderr.append(result.stderr)
+            result.stderr = stderr
+        }
+
+        if let redirectionFailure = await applyOutputRedirections(
             command.redirections,
             result: &result,
             filesystem: commandFilesystem,
             currentDirectory: currentDirectory,
-            environment: redirectionEnvironment,
-            enableGlobbing: enableGlobbing
-        )
+            environment: environment,
+            history: history,
+            commandRegistry: commandRegistry,
+            shellFunctions: shellFunctions,
+            enableGlobbing: enableGlobbing,
+            permissionAuthorizer: permissionAuthorizer,
+            executionControl: executionControl,
+            secretPolicy: secretPolicy,
+            secretResolver: secretResolver,
+            secretTracker: secretTracker,
+            secretOutputRedactor: secretOutputRedactor
+        ) {
+            return redirectionFailure
+        }
 
         return result
     }
 
+    /// Applies stdout/stderr redirections by building a file-descriptor sink
+    /// table in redirection order (so `> file 2>&1` sends both streams to the
+    /// file while `2>&1 > file` sends stderr to the caller's stdout), then
+    /// writing each distinct target once. Targets are expanded with the full
+    /// pipeline so process substitution and command substitution work in a
+    /// redirection target; an expansion failure returns a non-nil result for
+    /// the caller to propagate.
     private static func applyOutputRedirections(
         _ redirections: [Redirection],
         result: inout CommandResult,
         filesystem: any FileSystem,
         currentDirectory: String,
         environment: [String: String],
-        enableGlobbing: Bool
-    ) async {
+        history: [String],
+        commandRegistry: [String: AnyBuiltinCommand],
+        shellFunctions: [String: String],
+        enableGlobbing: Bool,
+        permissionAuthorizer: any ShellPermissionAuthorizing,
+        executionControl: ExecutionControl?,
+        secretPolicy: SecretHandlingPolicy,
+        secretResolver: (any SecretReferenceResolving)?,
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
+    ) async -> CommandResult? {
         guard redirections.contains(where: { $0.type != .stdin }) else {
-            return
+            return nil
         }
 
         var resolvedTargets: [String?] = []
@@ -474,14 +653,26 @@ package enum ShellExecutor {
                 resolvedTargets.append(nil)
                 continue
             }
-            let target = await firstExpansion(
+            let targetExpansion = await firstExpansion(
                 word: targetWord,
                 filesystem: filesystem,
                 currentDirectory: currentDirectory,
                 environment: environment,
-                enableGlobbing: enableGlobbing
+                history: history,
+                commandRegistry: commandRegistry,
+                shellFunctions: shellFunctions,
+                enableGlobbing: enableGlobbing,
+                permissionAuthorizer: permissionAuthorizer,
+                executionControl: executionControl,
+                secretPolicy: secretPolicy,
+                secretResolver: secretResolver,
+                secretTracker: secretTracker,
+                secretOutputRedactor: secretOutputRedactor
             )
-            resolvedTargets.append(target)
+            if let expansionFailure = applyRedirectionExpansionFailure(targetExpansion, to: &result) {
+                return expansionFailure
+            }
+            resolvedTargets.append(targetExpansion.text)
         }
 
         let routed = RedirectionPlan.route(
@@ -516,37 +707,8 @@ package enum ShellExecutor {
             result.stdout = routed.stdout
             result.stderr = routed.stderr
         }
-    }
 
-    private static func expandAssignmentWord(
-        _ word: ShellWord,
-        environment: [String: String]
-    ) -> (name: String, value: String)? {
-        guard let first = word.parts.first, first.quote == .none,
-              let equals = first.text.firstIndex(of: "="),
-              equals != first.text.startIndex else {
-            return nil
-        }
-
-        let name = String(first.text[..<equals])
-        guard isValidIdentifier(name) else {
-            return nil
-        }
-
-        // Assignment values expand without field splitting or globbing.
-        var value = ShellExpansion.expandVariables(
-            in: String(first.text[first.text.index(after: equals)...]),
-            environment: environment
-        )
-        for part in word.parts.dropFirst() {
-            switch part.quote {
-            case .single:
-                value += part.text
-            case .none, .double:
-                value += ShellExpansion.expandVariables(in: part.text, environment: environment)
-            }
-        }
-        return (name: name, value: value)
+        return nil
     }
 
     private static func executeShellFunction(
@@ -696,6 +858,18 @@ package enum ShellExecutor {
         return nil
     }
 
+    /// Whether a raw (unexpanded) word is an assignment prefix such as
+    /// `NAME=value`. Only an unquoted leading `NAME=` with a valid identifier
+    /// counts, so a quoted word or one whose expansion merely looks like an
+    /// assignment is treated as a command argument, matching bash.
+    private static func isAssignmentWord(_ word: ShellWord) -> Bool {
+        guard let first = word.parts.first, first.quote == .none,
+              let equals = first.text.firstIndex(of: "="), equals != first.text.startIndex else {
+            return false
+        }
+        return isValidIdentifier(String(first.text[..<equals]))
+    }
+
     private static func parseAssignment(_ word: String) -> (name: String, value: String)? {
         guard let equals = word.firstIndex(of: "="), equals != word.startIndex else {
             return nil
@@ -796,6 +970,223 @@ package enum ShellExecutor {
         }
     }
 
+    private static func executeSourceBuiltin(
+        commandName: String,
+        args: [String],
+        stdin: Data,
+        filesystem: any FileSystem,
+        currentDirectory: inout String,
+        environment: inout [String: String],
+        history: [String],
+        commandRegistry: [String: AnyBuiltinCommand],
+        shellFunctions: [String: String],
+        enableGlobbing: Bool,
+        jobControl: (any ShellJobControlling)?,
+        permissionAuthorizer: any ShellPermissionAuthorizing,
+        executionControl: ExecutionControl?,
+        secretPolicy: SecretHandlingPolicy,
+        secretResolver: (any SecretReferenceResolving)?,
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
+    ) async -> CommandResult {
+        if args == ["--help"] || args == ["-h"] {
+            return CommandResult(
+                stdout: Data(
+                    """
+                    OVERVIEW: Execute commands from a file in the current shell
+
+                    USAGE: \(commandName) <file>
+
+                    """.utf8
+                ),
+                stderr: Data(),
+                exitCode: 0
+            )
+        }
+
+        guard let file = args.first else {
+            return CommandResult(
+                stdout: Data(),
+                stderr: Data("\(commandName): filename argument required\n".utf8),
+                exitCode: 2
+            )
+        }
+
+        let path = WorkspacePath(
+            normalizing: file,
+            relativeTo: WorkspacePath(normalizing: currentDirectory)
+        )
+
+        let data: Data
+        do {
+            data = try await filesystem.readFile(path: path)
+        } catch {
+            return CommandResult(
+                stdout: Data(),
+                stderr: Data("\(commandName): \(file): \(error)\n".utf8),
+                exitCode: 1
+            )
+        }
+
+        guard let script = String(data: data, encoding: .utf8) else {
+            return CommandResult(
+                stdout: Data(),
+                stderr: Data("\(commandName): \(file): invalid UTF-8\n".utf8),
+                exitCode: 1
+            )
+        }
+
+        let parsed: ParsedLine
+        do {
+            parsed = try ShellParser.parse(script)
+        } catch {
+            return CommandResult(
+                stdout: Data(),
+                stderr: Data("\(error)\n".utf8),
+                exitCode: 2
+            )
+        }
+
+        let execution = await execute(
+            parsedLine: parsed,
+            stdin: stdin,
+            filesystem: filesystem,
+            currentDirectory: currentDirectory,
+            environment: environment,
+            history: history,
+            commandRegistry: commandRegistry,
+            shellFunctions: shellFunctions,
+            enableGlobbing: enableGlobbing,
+            jobControl: jobControl,
+            permissionAuthorizer: permissionAuthorizer,
+            executionControl: executionControl,
+            secretPolicy: secretPolicy,
+            secretResolver: secretResolver,
+            secretTracker: secretTracker,
+            secretOutputRedactor: secretOutputRedactor
+        )
+
+        currentDirectory = execution.currentDirectory
+        environment = execution.environment
+        return execution.result
+    }
+
+    private static func executeScriptFile(
+        commandName: String,
+        arguments: [String],
+        stdin: Data,
+        filesystem: any FileSystem,
+        currentDirectory: String,
+        environment: [String: String],
+        history: [String],
+        commandRegistry: [String: AnyBuiltinCommand],
+        shellFunctions: [String: String],
+        enableGlobbing: Bool,
+        jobControl: (any ShellJobControlling)?,
+        permissionAuthorizer: any ShellPermissionAuthorizing,
+        executionControl: ExecutionControl?,
+        secretPolicy: SecretHandlingPolicy,
+        secretResolver: (any SecretReferenceResolving)?,
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
+    ) async -> CommandResult {
+        let path: WorkspacePath
+        do {
+            path = try WorkspacePath(
+                validating: commandName,
+                relativeTo: WorkspacePath(normalizing: currentDirectory)
+            )
+        } catch {
+            return CommandResult(
+                stdout: Data(),
+                stderr: Data("\(commandName): \(error)\n".utf8),
+                exitCode: 127
+            )
+        }
+
+        let info: FileInfo
+        do {
+            info = try await filesystem.stat(path: path)
+        } catch {
+            return CommandResult(
+                stdout: Data(),
+                stderr: Data("\(commandName): \(error)\n".utf8),
+                exitCode: 127
+            )
+        }
+
+        guard !info.isDirectory else {
+            return CommandResult(
+                stdout: Data(),
+                stderr: Data("\(commandName): is a directory\n".utf8),
+                exitCode: 126
+            )
+        }
+
+        guard info.permissionBits & 0o111 != 0 else {
+            return CommandResult(
+                stdout: Data(),
+                stderr: Data("\(commandName): Permission denied\n".utf8),
+                exitCode: 126
+            )
+        }
+
+        let data: Data
+        do {
+            data = try await filesystem.readFile(path: path)
+        } catch {
+            return CommandResult(
+                stdout: Data(),
+                stderr: Data("\(commandName): \(error)\n".utf8),
+                exitCode: 126
+            )
+        }
+
+        guard let script = String(data: data, encoding: .utf8) else {
+            return CommandResult(
+                stdout: Data(),
+                stderr: Data("\(commandName): cannot execute binary file\n".utf8),
+                exitCode: 126
+            )
+        }
+
+        let parsed: ParsedLine
+        do {
+            parsed = try ShellParser.parse(script)
+        } catch {
+            return CommandResult(
+                stdout: Data(),
+                stderr: Data("\(commandName): \(error)\n".utf8),
+                exitCode: 2
+            )
+        }
+
+        let scriptDirectory = currentDirectory
+        var scriptEnvironment = environment
+        applyPositionalParameters(arguments, to: &scriptEnvironment)
+        scriptEnvironment["0"] = commandName
+
+        let execution = await execute(
+            parsedLine: parsed,
+            stdin: stdin,
+            filesystem: filesystem,
+            currentDirectory: scriptDirectory,
+            environment: scriptEnvironment,
+            history: history,
+            commandRegistry: commandRegistry,
+            shellFunctions: shellFunctions,
+            enableGlobbing: enableGlobbing,
+            jobControl: jobControl,
+            permissionAuthorizer: permissionAuthorizer,
+            executionControl: executionControl,
+            secretPolicy: secretPolicy,
+            secretResolver: secretResolver,
+            secretTracker: secretTracker,
+            secretOutputRedactor: secretOutputRedactor
+        )
+        return execution.result
+    }
+
     private static func isValidIdentifier(_ value: String) -> Bool {
         guard let first = value.first, first == "_" || first.isLetter else {
             return false
@@ -865,22 +1256,50 @@ package enum ShellExecutor {
         filesystem: any FileSystem,
         currentDirectory: String,
         environment: [String: String],
-        enableGlobbing: Bool
-    ) async -> [String] {
+        history: [String],
+        commandRegistry: [String: AnyBuiltinCommand],
+        shellFunctions: [String: String],
+        enableGlobbing: Bool,
+        permissionAuthorizer: any ShellPermissionAuthorizing,
+        executionControl: ExecutionControl?,
+        secretPolicy: SecretHandlingPolicy,
+        secretResolver: (any SecretReferenceResolving)?,
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
+    ) async -> WordExpansionOutcome {
         var expanded: [String] = []
+        var stderr = Data()
 
         for word in words {
-            let results = await expandWord(
+            let result = await expandWord(
                 word,
                 filesystem: filesystem,
                 currentDirectory: currentDirectory,
                 environment: environment,
-                enableGlobbing: enableGlobbing
+                history: history,
+                commandRegistry: commandRegistry,
+                shellFunctions: shellFunctions,
+                enableGlobbing: enableGlobbing,
+                permissionAuthorizer: permissionAuthorizer,
+                executionControl: executionControl,
+                secretPolicy: secretPolicy,
+                secretResolver: secretResolver,
+                secretTracker: secretTracker,
+                secretOutputRedactor: secretOutputRedactor
             )
-            expanded.append(contentsOf: results)
+            stderr.append(result.stderr)
+            if result.failure != nil || result.error != nil {
+                return WordExpansionOutcome(
+                    words: expanded,
+                    stderr: stderr,
+                    error: result.error,
+                    failure: result.failure
+                )
+            }
+            expanded.append(contentsOf: result.words)
         }
 
-        return expanded
+        return WordExpansionOutcome(words: expanded, stderr: stderr, error: nil, failure: nil)
     }
 
     private static func firstExpansion(
@@ -888,26 +1307,49 @@ package enum ShellExecutor {
         filesystem: any FileSystem,
         currentDirectory: String,
         environment: [String: String],
-        enableGlobbing: Bool
-    ) async -> String {
-        // Redirection targets expand without field splitting (bash treats a
-        // target that splits as an ambiguous redirect rather than using the
-        // first field).
-        let combined = ShellExpansion.expandJoined(word, environment: environment)
+        history: [String],
+        commandRegistry: [String: AnyBuiltinCommand],
+        shellFunctions: [String: String],
+        enableGlobbing: Bool,
+        permissionAuthorizer: any ShellPermissionAuthorizing,
+        executionControl: ExecutionControl?,
+        secretPolicy: SecretHandlingPolicy,
+        secretResolver: (any SecretReferenceResolving)?,
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
+    ) async -> TextExpansionOutcome {
+        let expanded = await expandWord(
+            word,
+            filesystem: filesystem,
+            currentDirectory: currentDirectory,
+            environment: environment,
+            history: history,
+            commandRegistry: commandRegistry,
+            shellFunctions: shellFunctions,
+            enableGlobbing: enableGlobbing,
+            splitFields: false,
+            permissionAuthorizer: permissionAuthorizer,
+            executionControl: executionControl,
+            secretPolicy: secretPolicy,
+            secretResolver: secretResolver,
+            secretTracker: secretTracker,
+            secretOutputRedactor: secretOutputRedactor
+        )
+        return TextExpansionOutcome(
+            text: expanded.words.first ?? "",
+            stderr: expanded.stderr,
+            error: expanded.error,
+            failure: expanded.failure
+        )
+    }
 
-        guard enableGlobbing, word.hasUnquotedWildcard, WorkspacePath.containsGlob(combined) else {
-            return combined
-        }
-
-        do {
-            let matches = try await filesystem.glob(
-                pattern: combined,
-                currentDirectory: WorkspacePath(normalizing: currentDirectory)
-            )
-            return matches.first?.string ?? combined
-        } catch {
-            return combined
-        }
+    /// A field under construction while a word is expanded. `hasContent` marks
+    /// fields that carry real content (a quoted segment or a non-empty unquoted
+    /// token) so that a word consisting solely of an empty unquoted expansion
+    /// (`echo $UNSET`) produces no argument, matching bash.
+    private struct ExpansionField {
+        var text: String
+        var hasContent: Bool
     }
 
     private static func expandWord(
@@ -915,32 +1357,325 @@ package enum ShellExecutor {
         filesystem: any FileSystem,
         currentDirectory: String,
         environment: [String: String],
-        enableGlobbing: Bool
-    ) async -> [String] {
-        let fields = ShellExpansion.expandFields(word, environment: environment)
+        history: [String],
+        commandRegistry: [String: AnyBuiltinCommand],
+        shellFunctions: [String: String],
+        enableGlobbing: Bool,
+        splitFields: Bool = true,
+        permissionAuthorizer: any ShellPermissionAuthorizing,
+        executionControl: ExecutionControl?,
+        secretPolicy: SecretHandlingPolicy,
+        secretResolver: (any SecretReferenceResolving)?,
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
+    ) async -> WordExpansionOutcome {
+        var fields: [ExpansionField] = [ExpansionField(text: "", hasContent: false)]
+        var stderr = Data()
 
-        guard enableGlobbing, word.hasUnquotedWildcard else {
-            return fields
+        func appendToOpenField(_ value: String, isContent: Bool) {
+            let lastIndex = fields.count - 1
+            fields[lastIndex].text += value
+            if isContent {
+                fields[lastIndex].hasContent = true
+            }
         }
 
-        var expanded: [String] = []
+        for part in word.parts {
+            switch part.quote {
+            case .single:
+                appendToOpenField(part.text, isContent: true)
+            case .double:
+                appendToOpenField(expandVariables(in: part.text, environment: environment), isContent: true)
+            case .none:
+                // Brace expansion multiplies the open field; each result is then
+                // parameter/process-substitution expanded and (for command
+                // words) split into fields on whitespace produced by expansions.
+                let braceValues = BraceExpansion.expand(part.text)
+                let base = fields.removeLast()
+                var produced: [ExpansionField] = []
+                for braceValue in braceValues {
+                    let expandedPart = await expandUnquotedWordPart(
+                        braceValue,
+                        filesystem: filesystem,
+                        currentDirectory: currentDirectory,
+                        environment: environment,
+                        history: history,
+                        commandRegistry: commandRegistry,
+                        shellFunctions: shellFunctions,
+                        enableGlobbing: enableGlobbing,
+                        permissionAuthorizer: permissionAuthorizer,
+                        executionControl: executionControl,
+                        secretPolicy: secretPolicy,
+                        secretResolver: secretResolver,
+                        secretTracker: secretTracker,
+                        secretOutputRedactor: secretOutputRedactor
+                    )
+                    stderr.append(expandedPart.stderr)
+                    if expandedPart.failure != nil || expandedPart.error != nil {
+                        return WordExpansionOutcome(
+                            words: [],
+                            stderr: stderr,
+                            error: expandedPart.error,
+                            failure: expandedPart.failure
+                        )
+                    }
+
+                    let subfields = splitFields
+                        ? splitIntoFields(expandedPart.text)
+                        : [expandedPart.text]
+
+                    if subfields.isEmpty {
+                        // Empty unquoted expansion contributes nothing but keeps
+                        // any content already accumulated on the base field.
+                        produced.append(base)
+                        continue
+                    }
+
+                    produced.append(
+                        ExpansionField(
+                            text: base.text + subfields[0],
+                            hasContent: base.hasContent || !subfields[0].isEmpty
+                        )
+                    )
+                    for subfield in subfields.dropFirst() {
+                        produced.append(ExpansionField(text: subfield, hasContent: true))
+                    }
+                }
+                fields.append(contentsOf: produced)
+            }
+        }
+
+        var output: [String] = []
         for field in fields {
-            guard WorkspacePath.containsGlob(field) else {
-                expanded.append(field)
+            guard field.hasContent || !field.text.isEmpty else {
+                continue
+            }
+            let variant = field.text
+
+            guard enableGlobbing, word.hasUnquotedWildcard, WorkspacePath.containsGlob(variant) else {
+                output.append(variant)
                 continue
             }
 
             do {
                 let matches = try await filesystem.glob(
-                    pattern: field,
+                    pattern: variant,
                     currentDirectory: WorkspacePath(normalizing: currentDirectory)
                 )
-                expanded.append(contentsOf: matches.isEmpty ? [field] : matches.map(\.string))
+                output.append(contentsOf: matches.isEmpty ? [variant] : matches.map(\.string))
             } catch {
-                expanded.append(field)
+                output.append(variant)
             }
         }
-        return expanded
+
+        return WordExpansionOutcome(words: output, stderr: stderr, error: nil, failure: nil)
+    }
+
+    /// Splits expansion output on unquoted whitespace (space, tab, newline),
+    /// dropping empty tokens. Unquoted word parts never contain literal
+    /// whitespace (the lexer splits words on it), so any whitespace here came
+    /// from an expansion and separates fields.
+    private static func splitIntoFields(_ value: String) -> [String] {
+        var fields: [String] = []
+        var current = ""
+        var started = false
+        for character in value {
+            if character == " " || character == "\t" || character == "\n" {
+                if started {
+                    fields.append(current)
+                    current = ""
+                    started = false
+                }
+            } else {
+                current.append(character)
+                started = true
+            }
+        }
+        if started {
+            fields.append(current)
+        }
+        return fields
+    }
+
+    private static func expandUnquotedWordPart(
+        _ text: String,
+        filesystem: any FileSystem,
+        currentDirectory: String,
+        environment: [String: String],
+        history: [String],
+        commandRegistry: [String: AnyBuiltinCommand],
+        shellFunctions: [String: String],
+        enableGlobbing: Bool,
+        permissionAuthorizer: any ShellPermissionAuthorizing,
+        executionControl: ExecutionControl?,
+        secretPolicy: SecretHandlingPolicy,
+        secretResolver: (any SecretReferenceResolving)?,
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
+    ) async -> TextExpansionOutcome {
+        var output = ""
+        var pending = ""
+        var stderr = Data()
+        var index = text.startIndex
+
+        while index < text.endIndex {
+            if let substitution = try? ProcessSubstitutionSyntax.capture(in: text, from: index) {
+                output += expandVariables(in: pending, environment: environment)
+                pending.removeAll(keepingCapacity: true)
+
+                switch substitution.kind {
+                case .input:
+                    let materialized = await materializeInputProcessSubstitution(
+                        substitution.content,
+                        filesystem: filesystem,
+                        currentDirectory: currentDirectory,
+                        environment: environment,
+                        history: history,
+                        commandRegistry: commandRegistry,
+                        shellFunctions: shellFunctions,
+                        enableGlobbing: enableGlobbing,
+                        permissionAuthorizer: permissionAuthorizer,
+                        executionControl: executionControl,
+                        secretPolicy: secretPolicy,
+                        secretResolver: secretResolver,
+                        secretTracker: secretTracker,
+                        secretOutputRedactor: secretOutputRedactor
+                    )
+                    stderr.append(materialized.stderr)
+                    if materialized.failure != nil || materialized.error != nil {
+                        return TextExpansionOutcome(
+                            text: output,
+                            stderr: stderr,
+                            error: materialized.error,
+                            failure: materialized.failure
+                        )
+                    }
+                    output += materialized.text
+                case .output:
+                    return TextExpansionOutcome(
+                        text: output,
+                        stderr: stderr,
+                        error: .unsupported("output process substitution >(...) is not supported"),
+                        failure: nil
+                    )
+                }
+
+                index = substitution.endIndex
+                continue
+            }
+
+            pending.append(text[index])
+            index = text.index(after: index)
+        }
+
+        output += expandVariables(in: pending, environment: environment)
+        return TextExpansionOutcome(text: output, stderr: stderr, error: nil, failure: nil)
+    }
+
+    private static func materializeInputProcessSubstitution(
+        _ command: String,
+        filesystem: any FileSystem,
+        currentDirectory: String,
+        environment: [String: String],
+        history: [String],
+        commandRegistry: [String: AnyBuiltinCommand],
+        shellFunctions: [String: String],
+        enableGlobbing: Bool,
+        permissionAuthorizer: any ShellPermissionAuthorizing,
+        executionControl: ExecutionControl?,
+        secretPolicy: SecretHandlingPolicy,
+        secretResolver: (any SecretReferenceResolving)?,
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
+    ) async -> TextExpansionOutcome {
+        let nested = await expandCommandSubstitutionsInCommandText(
+            command,
+            filesystem: filesystem,
+            currentDirectory: currentDirectory,
+            environment: environment,
+            history: history,
+            commandRegistry: commandRegistry,
+            shellFunctions: shellFunctions,
+            enableGlobbing: enableGlobbing,
+            permissionAuthorizer: permissionAuthorizer,
+            executionControl: executionControl,
+            secretPolicy: secretPolicy,
+            secretResolver: secretResolver,
+            secretTracker: secretTracker,
+            secretOutputRedactor: secretOutputRedactor
+        )
+        if nested.failure != nil || nested.error != nil {
+            return nested
+        }
+
+        let parsed: ParsedLine
+        do {
+            parsed = try ShellParser.parse(nested.text)
+        } catch let shellError as ShellError {
+            return TextExpansionOutcome(text: "", stderr: nested.stderr, error: shellError, failure: nil)
+        } catch {
+            return TextExpansionOutcome(text: "", stderr: nested.stderr, error: .parserError("\(error)"), failure: nil)
+        }
+
+        let execution = await execute(
+            parsedLine: parsed,
+            stdin: Data(),
+            filesystem: filesystem,
+            currentDirectory: currentDirectory,
+            environment: environment,
+            history: history,
+            commandRegistry: commandRegistry,
+            shellFunctions: shellFunctions,
+            enableGlobbing: enableGlobbing,
+            jobControl: nil,
+            permissionAuthorizer: permissionAuthorizer,
+            executionControl: executionControl,
+            secretPolicy: secretPolicy,
+            secretResolver: secretResolver,
+            secretTracker: secretTracker,
+            secretOutputRedactor: secretOutputRedactor
+        )
+
+        let tempDirectory = WorkspacePath(normalizing: "/tmp")
+        let tempPath = WorkspacePath(normalizing: "/tmp/bashswift-ps-\(UUID().uuidString.lowercased())")
+        var stderr = nested.stderr
+        stderr.append(execution.result.stderr)
+
+        do {
+            try await filesystem.createDirectory(path: tempDirectory, recursive: true)
+            try await filesystem.writeFile(path: tempPath, data: execution.result.stdout, append: false)
+        } catch {
+            stderr.append(Data("\(tempPath.string): \(error)\n".utf8))
+            return TextExpansionOutcome(
+                text: "",
+                stderr: stderr,
+                error: nil,
+                failure: ExecutionFailure(exitCode: 1, message: "process substitution failed")
+            )
+        }
+
+        return TextExpansionOutcome(text: tempPath.string, stderr: stderr, error: nil, failure: nil)
+    }
+
+    private static func applyRedirectionExpansionFailure(
+        _ expansion: TextExpansionOutcome,
+        to result: inout CommandResult
+    ) -> CommandResult? {
+        result.stderr.append(expansion.stderr)
+        if let failure = expansion.failure {
+            return CommandResult(stdout: Data(), stderr: result.stderr, exitCode: failure.exitCode)
+        }
+        if let error = expansion.error {
+            result.stderr.append(Data("\(error)\n".utf8))
+            return CommandResult(stdout: Data(), stderr: result.stderr, exitCode: 2)
+        }
+        return nil
+    }
+
+    private static func expandVariables(in string: String, environment: [String: String]) -> String {
+        // Delegate to the shared expander so `$?`, `${?}`, `${:-}`, arithmetic
+        // expansion, and the special parameters stay defined in one place.
+        ShellExpansion.expandVariables(in: string, environment: environment)
     }
 
     private struct PendingHereDocumentCapture: Sendable {
@@ -1073,7 +1808,7 @@ package enum ShellExecutor {
             if text[next] == "(" {
                 let maybeSecondOpen = text.index(after: next)
                 if maybeSecondOpen < text.endIndex, text[maybeSecondOpen] == "(",
-                   let capture = ShellExpansion.captureArithmeticExpansion(in: text, secondOpen: maybeSecondOpen) {
+                   let capture = captureArithmeticExpansion(in: text, secondOpen: maybeSecondOpen) {
                     let evaluated = ArithmeticEvaluator.evaluate(
                         capture.expression,
                         environment: environment
@@ -1733,6 +2468,42 @@ package enum ShellExecutor {
             output.removeLast()
         }
         return output
+    }
+
+    private static func captureArithmeticExpansion(
+        in string: String,
+        secondOpen: String.Index
+    ) -> (expression: String, endIndex: String.Index)? {
+        var depth = 1
+        var cursor = string.index(after: secondOpen)
+        let expressionStart = cursor
+
+        while cursor < string.endIndex {
+            if string[cursor] == "(" {
+                let next = string.index(after: cursor)
+                if next < string.endIndex, string[next] == "(" {
+                    depth += 1
+                    cursor = string.index(after: next)
+                    continue
+                }
+            } else if string[cursor] == ")" {
+                let next = string.index(after: cursor)
+                if next < string.endIndex, string[next] == ")" {
+                    depth -= 1
+                    if depth == 0 {
+                        let expression = String(string[expressionStart..<cursor])
+                        return (
+                            expression: expression,
+                            endIndex: string.index(after: next)
+                        )
+                    }
+                    cursor = string.index(after: next)
+                    continue
+                }
+            }
+            cursor = string.index(after: cursor)
+        }
+        return nil
     }
 
 }
