@@ -383,14 +383,19 @@ package enum ShellExecutor {
         // splitting (`FOO=$BAR cmd` assigns the whole value even when `$BAR`
         // contains spaces), matching bash. Assignment values still undergo
         // parameter/brace/process-substitution expansion, just not splitting.
+        // The assignments are NOT applied to the environment used to expand the
+        // command's own words — `EXP=after echo $EXP` prints the old value —
+        // but each assignment's value does see earlier assignments on the same
+        // line (`A=1 B=$A`), so they accumulate in a scratch environment.
         var commandWords = command.words[...]
-        var scopedAssignments: [(name: String, previousValue: String?)] = []
+        var pendingAssignments: [(name: String, value: String)] = []
+        var assignmentEnvironment = environment
         while let word = commandWords.first, isAssignmentWord(word) {
             let assignmentExpansion = await expandWord(
                 word,
                 filesystem: expansionFilesystem,
                 currentDirectory: currentDirectory,
-                environment: environment,
+                environment: assignmentEnvironment,
                 history: history,
                 commandRegistry: commandRegistry,
                 shellFunctions: shellFunctions,
@@ -414,21 +419,13 @@ package enum ShellExecutor {
             guard let assignment = parseAssignment(assignmentExpansion.words.first ?? "") else {
                 break
             }
-            scopedAssignments.append((name: assignment.name, previousValue: environment[assignment.name]))
-            environment[assignment.name] = assignment.value
+            pendingAssignments.append((name: assignment.name, value: assignment.value))
+            assignmentEnvironment[assignment.name] = assignment.value
             commandWords = commandWords.dropFirst()
         }
 
-        func restoreScopedAssignments() {
-            for assignment in scopedAssignments.reversed() {
-                if let previousValue = assignment.previousValue {
-                    environment[assignment.name] = previousValue
-                } else {
-                    environment.removeValue(forKey: assignment.name)
-                }
-            }
-        }
-
+        // Expand the command's own words against the environment *before* the
+        // temporary assignments take effect.
         let wordExpansion = await expandWords(
             Array(commandWords),
             filesystem: expansionFilesystem,
@@ -447,18 +444,33 @@ package enum ShellExecutor {
         )
         stderr.append(wordExpansion.stderr)
         if let failure = wordExpansion.failure {
-            restoreScopedAssignments()
             return CommandResult(stdout: Data(), stderr: stderr, exitCode: failure.exitCode)
         }
         if let error = wordExpansion.error {
-            restoreScopedAssignments()
             stderr.append(Data("\(error)\n".utf8))
             return CommandResult(stdout: Data(), stderr: stderr, exitCode: 2)
         }
         let expandedWords = wordExpansion.words
 
-        // An assignment-only statement (no command word) persists its
-        // assignments in the shell environment, so do not restore them.
+        // Apply the assignment prefixes now. For a statement with a command
+        // word they are temporary (restored afterward); for an assignment-only
+        // statement they persist in the shell environment.
+        var scopedAssignments: [(name: String, previousValue: String?)] = []
+        for assignment in pendingAssignments {
+            scopedAssignments.append((name: assignment.name, previousValue: environment[assignment.name]))
+            environment[assignment.name] = assignment.value
+        }
+
+        func restoreScopedAssignments() {
+            for assignment in scopedAssignments.reversed() {
+                if let previousValue = assignment.previousValue {
+                    environment[assignment.name] = previousValue
+                } else {
+                    environment.removeValue(forKey: assignment.name)
+                }
+            }
+        }
+
         guard let commandName = expandedWords.first else {
             return CommandResult(stdout: Data(), stderr: stderr, exitCode: 0)
         }
