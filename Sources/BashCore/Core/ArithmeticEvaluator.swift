@@ -67,6 +67,34 @@ package enum ArithmeticEvaluator {
                 continue
             }
 
+            if char == "$" {
+                let nextIndex = index + 1
+                guard nextIndex < chars.count else {
+                    return nil
+                }
+                if chars[nextIndex] == "?" || chars[nextIndex] == "#" {
+                    tokens.append(.identifier(String(chars[nextIndex])))
+                    index += 2
+                    continue
+                }
+                if chars[nextIndex].isNumber {
+                    var name = ""
+                    var cursor = nextIndex
+                    while cursor < chars.count, chars[cursor].isNumber {
+                        name.append(chars[cursor])
+                        cursor += 1
+                    }
+                    tokens.append(.identifier(name))
+                    index = cursor
+                    continue
+                }
+                if isIdentifierStart(chars[nextIndex]) {
+                    index += 1
+                    continue
+                }
+                return nil
+            }
+
             if char.isNumber {
                 var value = String(char)
                 index += 1
@@ -261,14 +289,16 @@ package enum ArithmeticEvaluator {
                     guard let rhs = parseAdditive(), rhs >= 0 else {
                         return nil
                     }
-                    value <<= rhs
+                    // Masking shift: bash (like C on common hardware) reduces
+                    // the shift count modulo the word size instead of trapping.
+                    value = value &<< rhs
                     continue
                 }
                 if matchOperator(">>") {
                     guard let rhs = parseAdditive(), rhs >= 0 else {
                         return nil
                     }
-                    value >>= rhs
+                    value = value &>> rhs
                     continue
                 }
                 return value
@@ -285,14 +315,16 @@ package enum ArithmeticEvaluator {
                     guard let rhs = parseMultiplicative() else {
                         return nil
                     }
-                    value += rhs
+                    // Wrapping arithmetic throughout: bash wraps on 64-bit
+                    // overflow, and trapping here would crash the host process.
+                    value = value &+ rhs
                     continue
                 }
                 if matchOperator("-") {
                     guard let rhs = parseMultiplicative() else {
                         return nil
                     }
-                    value -= rhs
+                    value = value &- rhs
                     continue
                 }
                 return value
@@ -309,21 +341,21 @@ package enum ArithmeticEvaluator {
                     guard let rhs = parsePower() else {
                         return nil
                     }
-                    value *= rhs
+                    value = value &* rhs
                     continue
                 }
                 if matchOperator("/") {
                     guard let rhs = parsePower(), rhs != 0 else {
                         return nil
                     }
-                    value /= rhs
+                    value = (value == Int.min && rhs == -1) ? Int.min : value / rhs
                     continue
                 }
                 if matchOperator("%") {
                     guard let rhs = parsePower(), rhs != 0 else {
                         return nil
                     }
-                    value %= rhs
+                    value = (value == Int.min && rhs == -1) ? 0 : value % rhs
                     continue
                 }
                 return value
@@ -352,7 +384,7 @@ package enum ArithmeticEvaluator {
                 guard let value = parseUnary() else {
                     return nil
                 }
-                return -value
+                return 0 &- value
             }
             if matchOperator("!") {
                 guard let value = parseUnary() else {
@@ -430,11 +462,11 @@ package enum ArithmeticEvaluator {
             var power = exponent
             while power > 0 {
                 if power & 1 == 1 {
-                    result *= factor
+                    result = result &* factor
                 }
                 power >>= 1
                 if power > 0 {
-                    factor *= factor
+                    factor = factor &* factor
                 }
             }
             return result

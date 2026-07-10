@@ -200,11 +200,17 @@ package actor ShellJobManager: ShellJobControlling {
         }
 
         let exitCode = Int32(128 + max(0, signal))
+        let runningTask = record.task
         record.state = .done(exitCode: exitCode)
         record.result = CommandResult(stdout: Data(), stderr: Data(), exitCode: exitCode)
-        record.task?.cancel()
         record.task = nil
+        // Commit the terminated state before cancelling the task, so the
+        // job's completion handler (which awaits the task and calls
+        // markCompleted) always observes the recorded `.done` status and
+        // cannot overwrite the signal exit code with the cancelled task's
+        // own result.
         jobsByID[resolvedID] = record
+        runningTask?.cancel()
         return true
     }
 

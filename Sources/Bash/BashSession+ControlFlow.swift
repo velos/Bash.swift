@@ -1133,81 +1133,50 @@ extension BashSession {
         _ redirections: [Redirection],
         to result: inout CommandResult
     ) async {
+        guard redirections.contains(where: { $0.type != .stdin }) else {
+            return
+        }
+
+        var resolvedTargets: [String?] = []
         for redirection in redirections {
-            switch redirection.type {
-            case .stdin:
+            guard redirection.type != .stdin, let targetWord = redirection.target else {
+                resolvedTargets.append(nil)
                 continue
-            case .stderrToStdout:
-                result.stdout.append(result.stderr)
-                result.stderr.removeAll(keepingCapacity: true)
-            case .stdoutTruncate, .stdoutAppend:
-                guard let targetWord = redirection.target else { continue }
-                let target = Self.expandWord(
-                    targetWord,
-                    environment: environmentStore
-                )
-                let path = WorkspacePath(
-                    normalizing: target,
-                    relativeTo: WorkspacePath(normalizing: currentDirectoryStore)
-                )
-                do {
-                    try await filesystemStore.writeFile(
-                        path: path,
-                        data: result.stdout,
-                        append: redirection.type == .stdoutAppend
-                    )
-                    result.stdout.removeAll(keepingCapacity: true)
-                } catch {
-                    result.stderr.append(Data("\(target): \(error)\n".utf8))
-                    result.exitCode = 1
-                }
-            case .stderrTruncate, .stderrAppend:
-                guard let targetWord = redirection.target else { continue }
-                let target = Self.expandWord(
-                    targetWord,
-                    environment: environmentStore
-                )
-                let path = WorkspacePath(
-                    normalizing: target,
-                    relativeTo: WorkspacePath(normalizing: currentDirectoryStore)
-                )
-                do {
-                    try await filesystemStore.writeFile(
-                        path: path,
-                        data: result.stderr,
-                        append: redirection.type == .stderrAppend
-                    )
-                    result.stderr.removeAll(keepingCapacity: true)
-                } catch {
-                    result.stderr.append(Data("\(target): \(error)\n".utf8))
-                    result.exitCode = 1
-                }
-            case .stdoutAndErrTruncate, .stdoutAndErrAppend:
-                guard let targetWord = redirection.target else { continue }
-                let target = Self.expandWord(
-                    targetWord,
-                    environment: environmentStore
-                )
-                let path = WorkspacePath(
-                    normalizing: target,
-                    relativeTo: WorkspacePath(normalizing: currentDirectoryStore)
-                )
-                var combined = Data()
-                combined.append(result.stdout)
-                combined.append(result.stderr)
-                do {
-                    try await filesystemStore.writeFile(
-                        path: path,
-                        data: combined,
-                        append: redirection.type == .stdoutAndErrAppend
-                    )
-                    result.stdout.removeAll(keepingCapacity: true)
-                    result.stderr.removeAll(keepingCapacity: true)
-                } catch {
-                    result.stderr.append(Data("\(target): \(error)\n".utf8))
-                    result.exitCode = 1
-                }
             }
+            resolvedTargets.append(Self.expandWord(targetWord, environment: environmentStore))
+        }
+
+        let routed = RedirectionPlan.route(
+            redirections: redirections,
+            resolvedTargets: resolvedTargets,
+            stdout: result.stdout,
+            stderr: result.stderr
+        )
+
+        let base = WorkspacePath(normalizing: currentDirectoryStore)
+        var writeFailed = false
+        var writeErrors = Data()
+        for write in routed.writes {
+            do {
+                try await filesystemStore.writeFile(
+                    path: WorkspacePath(normalizing: write.path, relativeTo: base),
+                    data: write.data,
+                    append: write.append
+                )
+            } catch {
+                writeErrors.append(Data("\(write.path): \(error)\n".utf8))
+                writeFailed = true
+            }
+        }
+
+        if writeFailed {
+            // Preserve the command's buffered output rather than dropping it
+            // when a redirection target cannot be written.
+            result.stderr.append(writeErrors)
+            result.exitCode = 1
+        } else {
+            result.stdout = routed.stdout
+            result.stderr = routed.stderr
         }
     }
 
@@ -1221,7 +1190,7 @@ extension BashSession {
             guard case let .word(word) = token else {
                 throw ShellError.parserError("for: unsupported loop value syntax")
             }
-            values.append(expandWord(word, environment: environment))
+            values.append(contentsOf: ShellExpansion.expandFields(word, environment: environment))
         }
         return values
     }
@@ -1363,7 +1332,7 @@ extension BashSession {
                 return .parserError("for: invalid increment target '\(name)'")
             }
             let current = Int(environmentStore[name] ?? "") ?? 0
-            environmentStore[name] = String(trimmed.hasSuffix("++") ? current + 1 : current - 1)
+            environmentStore[name] = String(trimmed.hasSuffix("++") ? current &+ 1 : current &- 1)
             return nil
         }
 
@@ -1384,21 +1353,21 @@ extension BashSession {
                 let lhs = Int(environmentStore[name] ?? "") ?? 0
                 switch op {
                 case "+=":
-                    environmentStore[name] = String(lhs + rhs)
+                    environmentStore[name] = String(lhs &+ rhs)
                 case "-=":
-                    environmentStore[name] = String(lhs - rhs)
+                    environmentStore[name] = String(lhs &- rhs)
                 case "*=":
-                    environmentStore[name] = String(lhs * rhs)
+                    environmentStore[name] = String(lhs &* rhs)
                 case "/=":
                     if rhs == 0 {
                         return .parserError("for: division by zero")
                     }
-                    environmentStore[name] = String(lhs / rhs)
+                    environmentStore[name] = String((lhs == Int.min && rhs == -1) ? Int.min : lhs / rhs)
                 case "%=":
                     if rhs == 0 {
                         return .parserError("for: division by zero")
                     }
-                    environmentStore[name] = String(lhs % rhs)
+                    environmentStore[name] = String((lhs == Int.min && rhs == -1) ? 0 : lhs % rhs)
                 default:
                     break
                 }

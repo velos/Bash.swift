@@ -146,7 +146,7 @@ public actor CPythonRuntime: PythonRuntime {
                 "scriptPath": request.scriptPath ?? "",
                 "arguments": request.arguments,
                 "cwd": request.currentDirectory,
-                "env": request.environment,
+                "env": request.environment.filter { ShellExpansion.isEnvironmentVariableName($0.key) },
                 "stdin": request.stdin,
                 "strict": configuration.strictFilesystem,
             ]

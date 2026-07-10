@@ -110,6 +110,7 @@ package enum ShellExecutor {
                     environment["!"] = String(launch.pid)
                     aggregateOut.append(Data("[\(launch.jobID)] \(launch.pid)\n".utf8))
                     lastExitCode = 0
+                    environment["?"] = "0"
                     continue
                 }
             }
@@ -136,6 +137,7 @@ package enum ShellExecutor {
             aggregateOut.append(segmentResult.stdout)
             aggregateErr.append(segmentResult.stderr)
             lastExitCode = segmentResult.exitCode
+            environment["?"] = String(lastExitCode)
         }
 
         return ShellExecutionResult(
@@ -301,8 +303,26 @@ package enum ShellExecutor {
             }
         }
 
+        var commandWords = command.words[...]
+        var inlineAssignments: [(name: String, value: String)] = []
+        // Assignments evaluate left to right with earlier assignments visible
+        // to later values (`A=1 B=$A` sets B to 1), like bash.
+        var assignmentEnvironment = environment
+        while let word = commandWords.first,
+              let assignment = expandAssignmentWord(word, environment: assignmentEnvironment) {
+            inlineAssignments.append(assignment)
+            assignmentEnvironment[assignment.name] = assignment.value
+            commandWords = commandWords.dropFirst()
+        }
+
+        // Redirection targets are expanded before inline assignments take
+        // effect (bash performs redirections before applying the temporary
+        // `VAR=value` environment), so resolve them against the environment as
+        // it stands prior to those assignments.
+        let redirectionEnvironment = environment
+
         let expandedWords = await expandWords(
-            command.words,
+            Array(commandWords),
             filesystem: expansionFilesystem,
             currentDirectory: currentDirectory,
             environment: environment,
@@ -310,7 +330,24 @@ package enum ShellExecutor {
         )
 
         guard let commandName = expandedWords.first else {
-            return CommandResult(stdout: Data(), stderr: Data(), exitCode: 0)
+            // Assignment-only statement: the assignments persist in the shell
+            // environment.
+            guard !inlineAssignments.isEmpty || !command.redirections.isEmpty else {
+                return CommandResult(stdout: Data(), stderr: Data(), exitCode: 0)
+            }
+            var result = CommandResult(stdout: Data(), stderr: Data(), exitCode: 0)
+            await applyOutputRedirections(
+                command.redirections,
+                result: &result,
+                filesystem: expansionFilesystem,
+                currentDirectory: currentDirectory,
+                environment: redirectionEnvironment,
+                enableGlobbing: enableGlobbing
+            )
+            for assignment in inlineAssignments {
+                environment[assignment.name] = assignment.value
+            }
+            return result
         }
 
         let commandArgs = Array(expandedWords.dropFirst())
@@ -321,11 +358,30 @@ package enum ShellExecutor {
             executionControl: executionControl
         )
 
+        // Inline assignment prefixes apply only for the duration of this
+        // command and are applied after word expansion, matching bash's
+        // `VAR=value command` semantics.
+        var inlineAssignmentSnapshot: [(name: String, previousValue: String?)] = []
+        if !inlineAssignments.isEmpty {
+            inlineAssignmentSnapshot = inlineAssignments.map {
+                (name: $0.name, previousValue: environment[$0.name])
+            }
+            for assignment in inlineAssignments {
+                environment[assignment.name] = assignment.value
+            }
+        }
+        defer {
+            for (name, previousValue) in inlineAssignmentSnapshot.reversed() {
+                if let previousValue {
+                    environment[name] = previousValue
+                } else {
+                    environment.removeValue(forKey: name)
+                }
+            }
+        }
+
         var result: CommandResult
-        if commandArgs.isEmpty, let assignment = parseAssignment(commandName) {
-            environment[assignment.name] = assignment.value
-            result = CommandResult(stdout: Data(), stderr: Data(), exitCode: 0)
-        } else if commandName == "local" {
+        if commandName == "local" {
             result = executeLocalBuiltin(commandArgs, environment: &environment)
         } else if let implementation = resolveCommand(named: commandName, registry: commandRegistry) {
             if let failure = await executionControl?.recordCommandExecution(commandName: commandName) {
@@ -388,96 +444,109 @@ package enum ShellExecutor {
             return CommandResult(stdout: Data(), stderr: Data(message.utf8), exitCode: 127)
         }
 
-        for redirection in command.redirections where redirection.type != .stdin {
-            switch redirection.type {
-            case .stdoutTruncate, .stdoutAppend:
-                guard let targetWord = redirection.target else { continue }
-                let target = await firstExpansion(
-                    word: targetWord,
-                    filesystem: commandFilesystem,
-                    currentDirectory: currentDirectory,
-                    environment: environment,
-                    enableGlobbing: enableGlobbing
-                )
+        await applyOutputRedirections(
+            command.redirections,
+            result: &result,
+            filesystem: commandFilesystem,
+            currentDirectory: currentDirectory,
+            environment: redirectionEnvironment,
+            enableGlobbing: enableGlobbing
+        )
 
-                do {
-                    let path = WorkspacePath(
-                        normalizing: target,
-                        relativeTo: WorkspacePath(normalizing: currentDirectory)
-                    )
-                    try await commandFilesystem.writeFile(
-                        path: path,
-                        data: result.stdout,
-                        append: redirection.type == .stdoutAppend
-                    )
-                    result.stdout.removeAll(keepingCapacity: true)
-                } catch {
-                    result.stderr.append(Data("\(target): \(error)\n".utf8))
-                    result.exitCode = 1
-                }
-            case .stderrTruncate, .stderrAppend:
-                guard let targetWord = redirection.target else { continue }
-                let target = await firstExpansion(
-                    word: targetWord,
-                    filesystem: commandFilesystem,
-                    currentDirectory: currentDirectory,
-                    environment: environment,
-                    enableGlobbing: enableGlobbing
-                )
+        return result
+    }
 
-                do {
-                    let path = WorkspacePath(
-                        normalizing: target,
-                        relativeTo: WorkspacePath(normalizing: currentDirectory)
-                    )
-                    try await commandFilesystem.writeFile(
-                        path: path,
-                        data: result.stderr,
-                        append: redirection.type == .stderrAppend
-                    )
-                    result.stderr.removeAll(keepingCapacity: true)
-                } catch {
-                    result.stderr.append(Data("\(target): \(error)\n".utf8))
-                    result.exitCode = 1
-                }
-            case .stderrToStdout:
-                result.stdout.append(result.stderr)
-                result.stderr.removeAll(keepingCapacity: true)
-            case .stdoutAndErrTruncate, .stdoutAndErrAppend:
-                guard let targetWord = redirection.target else { continue }
-                let target = await firstExpansion(
-                    word: targetWord,
-                    filesystem: commandFilesystem,
-                    currentDirectory: currentDirectory,
-                    environment: environment,
-                    enableGlobbing: enableGlobbing
-                )
+    private static func applyOutputRedirections(
+        _ redirections: [Redirection],
+        result: inout CommandResult,
+        filesystem: any FileSystem,
+        currentDirectory: String,
+        environment: [String: String],
+        enableGlobbing: Bool
+    ) async {
+        guard redirections.contains(where: { $0.type != .stdin }) else {
+            return
+        }
 
-                do {
-                    let path = WorkspacePath(
-                        normalizing: target,
-                        relativeTo: WorkspacePath(normalizing: currentDirectory)
-                    )
-                    var combined = Data()
-                    combined.append(result.stdout)
-                    combined.append(result.stderr)
-                    try await commandFilesystem.writeFile(
-                        path: path,
-                        data: combined,
-                        append: redirection.type == .stdoutAndErrAppend
-                    )
-                    result.stdout.removeAll(keepingCapacity: true)
-                    result.stderr.removeAll(keepingCapacity: true)
-                } catch {
-                    result.stderr.append(Data("\(target): \(error)\n".utf8))
-                    result.exitCode = 1
-                }
-            case .stdin:
+        var resolvedTargets: [String?] = []
+        for redirection in redirections {
+            guard redirection.type != .stdin, let targetWord = redirection.target else {
+                resolvedTargets.append(nil)
                 continue
+            }
+            let target = await firstExpansion(
+                word: targetWord,
+                filesystem: filesystem,
+                currentDirectory: currentDirectory,
+                environment: environment,
+                enableGlobbing: enableGlobbing
+            )
+            resolvedTargets.append(target)
+        }
+
+        let routed = RedirectionPlan.route(
+            redirections: redirections,
+            resolvedTargets: resolvedTargets,
+            stdout: result.stdout,
+            stderr: result.stderr
+        )
+
+        let base = WorkspacePath(normalizing: currentDirectory)
+        var writeFailed = false
+        var writeErrors = Data()
+        for write in routed.writes {
+            do {
+                try await filesystem.writeFile(
+                    path: WorkspacePath(normalizing: write.path, relativeTo: base),
+                    data: write.data,
+                    append: write.append
+                )
+            } catch {
+                writeErrors.append(Data("\(write.path): \(error)\n".utf8))
+                writeFailed = true
             }
         }
 
-        return result
+        if writeFailed {
+            // Preserve the command's buffered output rather than dropping it
+            // when a redirection target cannot be written.
+            result.stderr.append(writeErrors)
+            result.exitCode = 1
+        } else {
+            result.stdout = routed.stdout
+            result.stderr = routed.stderr
+        }
+    }
+
+    private static func expandAssignmentWord(
+        _ word: ShellWord,
+        environment: [String: String]
+    ) -> (name: String, value: String)? {
+        guard let first = word.parts.first, first.quote == .none,
+              let equals = first.text.firstIndex(of: "="),
+              equals != first.text.startIndex else {
+            return nil
+        }
+
+        let name = String(first.text[..<equals])
+        guard isValidIdentifier(name) else {
+            return nil
+        }
+
+        // Assignment values expand without field splitting or globbing.
+        var value = ShellExpansion.expandVariables(
+            in: String(first.text[first.text.index(after: equals)...]),
+            environment: environment
+        )
+        for part in word.parts.dropFirst() {
+            switch part.quote {
+            case .single:
+                value += part.text
+            case .none, .double:
+                value += ShellExpansion.expandVariables(in: part.text, environment: environment)
+            }
+        }
+        return (name: name, value: value)
     }
 
     private static func executeShellFunction(
@@ -821,14 +890,24 @@ package enum ShellExecutor {
         environment: [String: String],
         enableGlobbing: Bool
     ) async -> String {
-        let expanded = await expandWord(
-            word,
-            filesystem: filesystem,
-            currentDirectory: currentDirectory,
-            environment: environment,
-            enableGlobbing: enableGlobbing
-        )
-        return expanded.first ?? ""
+        // Redirection targets expand without field splitting (bash treats a
+        // target that splits as an ambiguous redirect rather than using the
+        // first field).
+        let combined = ShellExpansion.expandJoined(word, environment: environment)
+
+        guard enableGlobbing, word.hasUnquotedWildcard, WorkspacePath.containsGlob(combined) else {
+            return combined
+        }
+
+        do {
+            let matches = try await filesystem.glob(
+                pattern: combined,
+                currentDirectory: WorkspacePath(normalizing: currentDirectory)
+            )
+            return matches.first?.string ?? combined
+        } catch {
+            return combined
+        }
     }
 
     private static func expandWord(
@@ -838,132 +917,30 @@ package enum ShellExecutor {
         environment: [String: String],
         enableGlobbing: Bool
     ) async -> [String] {
-        var combined = ""
+        let fields = ShellExpansion.expandFields(word, environment: environment)
 
-        for part in word.parts {
-            switch part.quote {
-            case .single:
-                combined += part.text
-            case .none, .double:
-                combined += expandVariables(in: part.text, environment: environment)
-            }
+        guard enableGlobbing, word.hasUnquotedWildcard else {
+            return fields
         }
 
-        guard enableGlobbing, word.hasUnquotedWildcard, WorkspacePath.containsGlob(combined) else {
-            return [combined]
-        }
-
-        do {
-            let matches = try await filesystem.glob(
-                pattern: combined,
-                currentDirectory: WorkspacePath(normalizing: currentDirectory)
-            )
-            return matches.isEmpty ? [combined] : matches.map(\.string)
-        } catch {
-            return [combined]
-        }
-    }
-
-    private static func expandVariables(in string: String, environment: [String: String]) -> String {
-        var result = ""
-        var index = string.startIndex
-
-        func readIdentifier(startingAt start: String.Index) -> (String, String.Index) {
-            var i = start
-            var value = ""
-            while i < string.endIndex {
-                let char = string[i]
-                if char.isLetter || char.isNumber || char == "_" {
-                    value.append(char)
-                    i = string.index(after: i)
-                } else {
-                    break
-                }
-            }
-            return (value, i)
-        }
-
-        while index < string.endIndex {
-            let char = string[index]
-            guard char == "$" else {
-                result.append(char)
-                index = string.index(after: index)
+        var expanded: [String] = []
+        for field in fields {
+            guard WorkspacePath.containsGlob(field) else {
+                expanded.append(field)
                 continue
             }
 
-            let next = string.index(after: index)
-            guard next < string.endIndex else {
-                result.append("$")
-                break
-            }
-
-            if string[next] == "!" {
-                result += environment["!"] ?? ""
-                index = string.index(after: next)
-                continue
-            }
-
-            if string[next] == "@" || string[next] == "*" || string[next] == "#" {
-                result += environment[String(string[next])] ?? ""
-                index = string.index(after: next)
-                continue
-            }
-
-            if string[next] == "(" {
-                let maybeSecondOpen = string.index(after: next)
-                if maybeSecondOpen < string.endIndex, string[maybeSecondOpen] == "(",
-                   let capture = captureArithmeticExpansion(
-                       in: string,
-                       secondOpen: maybeSecondOpen
-                   ) {
-                    let evaluated = ArithmeticEvaluator.evaluate(
-                        capture.expression,
-                        environment: environment
-                    ) ?? 0
-                    result += String(evaluated)
-                    index = capture.endIndex
-                    continue
-                }
-            }
-
-            if string[next] == "{" {
-                guard let close = string[next...].firstIndex(of: "}") else {
-                    result.append("$")
-                    index = next
-                    continue
-                }
-
-                let contentStart = string.index(after: next)
-                let content = String(string[contentStart..<close])
-
-                if let range = content.range(of: ":-") {
-                    let key = String(content[..<range.lowerBound])
-                    let fallback = String(content[range.upperBound...])
-                    let value = environment[key]
-                    if let value, !value.isEmpty {
-                        result += value
-                    } else {
-                        result += fallback
-                    }
-                } else {
-                    result += environment[content] ?? ""
-                }
-
-                index = string.index(after: close)
-                continue
-            }
-
-            let (key, end) = readIdentifier(startingAt: next)
-            if key.isEmpty {
-                result.append("$")
-                index = next
-            } else {
-                result += environment[key] ?? ""
-                index = end
+            do {
+                let matches = try await filesystem.glob(
+                    pattern: field,
+                    currentDirectory: WorkspacePath(normalizing: currentDirectory)
+                )
+                expanded.append(contentsOf: matches.isEmpty ? [field] : matches.map(\.string))
+            } catch {
+                expanded.append(field)
             }
         }
-
-        return result
+        return expanded
     }
 
     private struct PendingHereDocumentCapture: Sendable {
@@ -1096,7 +1073,7 @@ package enum ShellExecutor {
             if text[next] == "(" {
                 let maybeSecondOpen = text.index(after: next)
                 if maybeSecondOpen < text.endIndex, text[maybeSecondOpen] == "(",
-                   let capture = captureArithmeticExpansion(in: text, secondOpen: maybeSecondOpen) {
+                   let capture = ShellExpansion.captureArithmeticExpansion(in: text, secondOpen: maybeSecondOpen) {
                     let evaluated = ArithmeticEvaluator.evaluate(
                         capture.expression,
                         environment: environment
@@ -1163,6 +1140,12 @@ package enum ShellExecutor {
 
             if text[next] == "!" {
                 output += environment["!"] ?? ""
+                index = text.index(after: next)
+                continue
+            }
+
+            if text[next] == "?" {
+                output += ShellExpansion.lastExitStatus(in: environment)
                 index = text.index(after: next)
                 continue
             }
@@ -1750,42 +1733,6 @@ package enum ShellExecutor {
             output.removeLast()
         }
         return output
-    }
-
-    private static func captureArithmeticExpansion(
-        in string: String,
-        secondOpen: String.Index
-    ) -> (expression: String, endIndex: String.Index)? {
-        var depth = 1
-        var cursor = string.index(after: secondOpen)
-        let expressionStart = cursor
-
-        while cursor < string.endIndex {
-            if string[cursor] == "(" {
-                let next = string.index(after: cursor)
-                if next < string.endIndex, string[next] == "(" {
-                    depth += 1
-                    cursor = string.index(after: next)
-                    continue
-                }
-            } else if string[cursor] == ")" {
-                let next = string.index(after: cursor)
-                if next < string.endIndex, string[next] == ")" {
-                    depth -= 1
-                    if depth == 0 {
-                        let expression = String(string[expressionStart..<cursor])
-                        return (
-                            expression: expression,
-                            endIndex: string.index(after: next)
-                        )
-                    }
-                    cursor = string.index(after: next)
-                    continue
-                }
-            }
-            cursor = string.index(after: cursor)
-        }
-        return nil
     }
 
 }
