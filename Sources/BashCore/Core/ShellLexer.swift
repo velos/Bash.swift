@@ -225,7 +225,20 @@ package enum ShellLexer {
             if char == "\\", currentQuote != .single {
                 let next = input.index(after: i)
                 if next < input.endIndex {
-                    currentPart.append(input[next])
+                    if input[next] == "\n" {
+                        // Line continuation: backslash-newline is removed.
+                        i = input.index(after: next)
+                        continue
+                    }
+                    if currentQuote == .none {
+                        // A backslash-escaped character is quoted: emit it as
+                        // its own single-quoted part so field splitting and
+                        // globbing treat it as literal.
+                        flushPart()
+                        parts.append(ShellWordPart(text: String(input[next]), quote: .single))
+                    } else {
+                        currentPart.append(input[next])
+                    }
                     i = input.index(after: next)
                 } else {
                     currentPart.append("\\")

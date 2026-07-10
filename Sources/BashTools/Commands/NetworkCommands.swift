@@ -322,34 +322,47 @@ struct CurlCommand: BuiltinCommand {
     private final class CurlRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
         let followRedirects: Bool
         let maxRedirects: Int?
+        let authorizeRedirect: @Sendable (URLRequest) async -> String?
         private(set) var exceededMaxRedirects = false
+        private(set) var redirectDenialMessage: String?
         private var redirectCount = 0
 
-        init(followRedirects: Bool, maxRedirects: Int?) {
+        init(
+            followRedirects: Bool,
+            maxRedirects: Int?,
+            authorizeRedirect: @escaping @Sendable (URLRequest) async -> String?
+        ) {
             self.followRedirects = followRedirects
             self.maxRedirects = maxRedirects
+            self.authorizeRedirect = authorizeRedirect
         }
 
         func urlSession(
             _ session: URLSession,
             task: URLSessionTask,
             willPerformHTTPRedirection response: HTTPURLResponse,
-            newRequest request: URLRequest,
-            completionHandler: @escaping (URLRequest?) -> Void
-        ) {
+            newRequest request: URLRequest
+        ) async -> URLRequest? {
             guard followRedirects else {
-                completionHandler(nil)
-                return
+                return nil
             }
 
             if let maxRedirects, redirectCount >= maxRedirects {
                 exceededMaxRedirects = true
-                completionHandler(nil)
-                return
+                return nil
             }
 
             redirectCount += 1
-            completionHandler(request)
+
+            // Redirect targets must be re-authorized against the network
+            // policy; an allowlisted host could otherwise redirect the
+            // request to a denied host or private address.
+            if let denial = await authorizeRedirect(request) {
+                redirectDenialMessage = denial
+                return nil
+            }
+
+            return request
         }
     }
 
@@ -680,9 +693,27 @@ struct CurlCommand: BuiltinCommand {
         configuration.httpCookieStorage = cookieStorage
         configuration.httpCookieAcceptPolicy = .always
 
+        let requestContext = context
         let redirectDelegate = CurlRedirectDelegate(
             followRedirects: options.location,
-            maxRedirects: options.maxRedirs ?? 20
+            maxRedirects: options.maxRedirs ?? 20,
+            authorizeRedirect: { redirectRequest in
+                let method = redirectRequest.httpMethod ?? "GET"
+                guard let redirectURL = redirectRequest.url,
+                      let scheme = redirectURL.scheme?.lowercased(),
+                      scheme == "http" || scheme == "https" else {
+                    let target = redirectRequest.url?.absoluteString ?? "<invalid URL>"
+                    return "network access denied: redirect to unsupported URL '\(target)'"
+                }
+                let decision = await requestContext.requestNetworkPermission(
+                    url: redirectURL.absoluteString,
+                    method: method
+                )
+                if case let .deny(message) = decision {
+                    return message ?? "network access denied: \(method) \(redirectURL.absoluteString)"
+                }
+                return nil
+            }
         )
         let session = URLSession(
             configuration: configuration,
@@ -725,6 +756,17 @@ struct CurlCommand: BuiltinCommand {
 
         do {
             let (data, response) = try await session.data(for: request)
+
+            if let denial = redirectDelegate.redirectDenialMessage {
+                return .failure(
+                    emitError(
+                        &context,
+                        options: options,
+                        code: 1,
+                        message: "curl: \(denial)\n"
+                    )
+                )
+            }
 
             if redirectDelegate.exceededMaxRedirects {
                 return .failure(
@@ -786,6 +828,17 @@ struct CurlCommand: BuiltinCommand {
                 )
             )
         } catch {
+            if let denial = redirectDelegate.redirectDenialMessage {
+                return .failure(
+                    emitError(
+                        &context,
+                        options: options,
+                        code: 1,
+                        message: "curl: \(denial)\n"
+                    )
+                )
+            }
+
             if redirectDelegate.exceededMaxRedirects {
                 return .failure(
                     emitError(
