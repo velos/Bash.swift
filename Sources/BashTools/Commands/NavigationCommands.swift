@@ -141,21 +141,81 @@ struct DuCommand: BuiltinCommand {
 
 struct EchoCommand: BuiltinCommand {
     struct Options: ParsableArguments {
-        @Flag(name: .short, help: "Do not output the trailing newline")
-        var n = false
-
-        @Argument(help: "Words to print")
+        @Argument(parsing: .captureForPassthrough, help: "Words to print")
         var words: [String] = []
     }
 
     static let name = "echo"
     static let overview = "Display a line of text"
 
+    private static let helpText = """
+        OVERVIEW: Display a line of text
+
+        USAGE: echo [-n] [-e] [-E] [text ...]
+
+        OPTIONS:
+          -n    Do not output the trailing newline
+          -e/-E Accepted for compatibility (escape processing is not applied)
+
+        """
+
+    // Parse arguments manually so that operands beginning with `-` (for
+    // example a negative number produced by arithmetic) are printed
+    // literally instead of being rejected as unknown options, matching bash.
+    // A leading run of `-n` / `-e` / `-E` option words is consumed; `-h` /
+    // `--help` and unknown long options keep the package-wide builtin
+    // conventions (help output and invalid-flag failures).
+    static func _toAnyBuiltinCommand() -> AnyBuiltinCommand {
+        AnyBuiltinCommand(
+            name: name,
+            aliases: aliases,
+            overview: overview
+        ) { context, args in
+            if args == ["-h"] || args == ["--help"] {
+                context.writeStdout(helpText)
+                return 0
+            }
+
+            var suppressNewline = false
+            var index = 0
+            while index < args.count {
+                let arg = args[index]
+                if isOptionWord(arg) {
+                    if arg.contains("n") {
+                        suppressNewline = true
+                    }
+                    index += 1
+                    continue
+                }
+                // Unknown long options fail, matching every other builtin;
+                // single-dash operands (e.g. -5) are printed literally.
+                if arg.hasPrefix("--") {
+                    context.writeStderr("echo: unrecognized option '\(arg)'\n")
+                    context.writeStderr(helpText)
+                    return 2
+                }
+                break
+            }
+
+            let words = Array(args[index...])
+            context.writeStdout(words.joined(separator: " "))
+            if !suppressNewline {
+                context.writeStdout("\n")
+            }
+            return 0
+        }
+    }
+
+    private static func isOptionWord(_ word: String) -> Bool {
+        guard word.count >= 2, word.hasPrefix("-"), !word.hasPrefix("--") else {
+            return false
+        }
+        return word.dropFirst().allSatisfy { $0 == "n" || $0 == "e" || $0 == "E" }
+    }
+
     static func run(context: inout CommandContext, options: Options) async -> Int32 {
         context.writeStdout(options.words.joined(separator: " "))
-        if !options.n {
-            context.writeStdout("\n")
-        }
+        context.writeStdout("\n")
         return 0
     }
 }

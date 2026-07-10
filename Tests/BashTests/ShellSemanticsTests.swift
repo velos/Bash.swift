@@ -256,6 +256,34 @@ struct ShellSemanticsTests {
         #expect(TestSupport.text(read.stdout) == "content\n")
     }
 
+    @Test("echo prints leading-dash operands literally")
+    func echoPrintsLeadingDashOperands() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        // A negative number (e.g. from arithmetic) must be printed, not
+        // rejected as an unknown option.
+        let negative = await session.run("echo -5")
+        #expect(negative.exitCode == 0)
+        #expect(TestSupport.text(negative.stdout) == "-5\n")
+
+        let arithmetic = await session.run("echo $(( 0 - 42 ))")
+        #expect(arithmetic.exitCode == 0)
+        #expect(TestSupport.text(arithmetic.stdout) == "-42\n")
+
+        // -n still suppresses the trailing newline.
+        let noNewline = await session.run("echo -n hello")
+        #expect(TestSupport.text(noNewline.stdout) == "hello")
+
+        // -n applies before a leading-dash operand.
+        let mixed = await session.run("echo -n -7")
+        #expect(TestSupport.text(mixed.stdout) == "-7")
+
+        // Unknown long options still fail, matching the builtin convention.
+        let invalid = await session.run("echo --definitely-invalid-flag")
+        #expect(invalid.exitCode != 0)
+    }
+
     @Test("output is preserved when a redirection write fails")
     func outputPreservedWhenRedirectionWriteFails() async throws {
         // Deny filesystem writes so the redirection target write fails
