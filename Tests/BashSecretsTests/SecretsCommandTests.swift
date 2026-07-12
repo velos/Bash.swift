@@ -13,7 +13,7 @@ struct SecretsCommandTests {
 
         let session = try await BashSession(
             rootDirectory: root,
-            options: SessionOptions(filesystem: ReadWriteFilesystem(), layout: .unixLike)
+            options: SessionOptions(layout: .unixLike)
         )
 
         let missing = await session.run("secrets --help")

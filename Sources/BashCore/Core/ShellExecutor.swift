@@ -1093,7 +1093,7 @@ package enum ShellExecutor {
         let path: WorkspacePath
         do {
             path = try WorkspacePath(
-                validating: commandName,
+                commandName,
                 relativeTo: WorkspacePath(normalizing: currentDirectory)
             )
         } catch {

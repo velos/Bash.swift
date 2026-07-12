@@ -18,7 +18,7 @@ enum TestSupport {
     ) async throws -> (session: BashSession, root: URL) {
         let root = try makeTempDirectory()
         let options = SessionOptions(
-            filesystem: filesystem ?? ReadWriteFilesystem(),
+            filesystem: filesystem,
             layout: layout,
             initialEnvironment: [:],
             enableGlobbing: enableGlobbing,

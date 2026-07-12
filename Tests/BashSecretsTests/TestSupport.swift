@@ -13,7 +13,7 @@ enum SecretsTestSupport {
 
     static func makeSession(
         provider: InMemorySecretsProvider = InMemorySecretsProvider(),
-        options: SessionOptions = SessionOptions(filesystem: ReadWriteFilesystem(), layout: .unixLike)
+        options: SessionOptions = SessionOptions(layout: .unixLike)
     ) async throws -> (session: BashSession, root: URL) {
         let root = try makeTempDirectory()
         let session = try await BashSession(rootDirectory: root, options: options)
@@ -45,7 +45,6 @@ enum SecretsTestSupport {
         let session = try await BashSession(
             rootDirectory: root,
             options: SessionOptions(
-                filesystem: ReadWriteFilesystem(),
                 layout: .unixLike,
                 networkPolicy: networkPolicy
             )

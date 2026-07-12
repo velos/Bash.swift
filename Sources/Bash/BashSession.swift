@@ -27,15 +27,16 @@ public final actor BashSession {
     }
 
     public init(rootDirectory: URL, options: SessionOptions = .init()) async throws {
-        let filesystem = options.filesystem
-        try await filesystem.configure(rootDirectory: rootDirectory)
-        let workspace = options.workspace ?? Workspace(filesystem: filesystem)
+        // An explicitly provided filesystem/workspace is used as-is and must already be rooted;
+        // otherwise the session owns a local filesystem rooted at `rootDirectory`.
+        let filesystem = try options.filesystem ?? LocalFileSystem(root: rootDirectory)
+        let workspace = options.workspace ?? Workspace(fileSystem: filesystem)
         try await self.init(options: options, configuredFilesystem: filesystem, workspace: workspace)
     }
 
     public init(options: SessionOptions = .init()) async throws {
-        let filesystem = options.filesystem
-        let workspace = options.workspace ?? Workspace(filesystem: filesystem)
+        let filesystem = options.filesystem ?? InMemoryFileSystem()
+        let workspace = options.workspace ?? Workspace(fileSystem: filesystem)
         try await self.init(options: options, configuredFilesystem: filesystem, workspace: workspace)
     }
 

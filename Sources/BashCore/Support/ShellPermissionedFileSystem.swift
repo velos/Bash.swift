@@ -26,10 +26,6 @@ final class ShellPermissionedFileSystem: FileSystem, @unchecked Sendable {
         return filesystem
     }
 
-    func configure(rootDirectory: URL) async throws {
-        try await base.configure(rootDirectory: rootDirectory)
-    }
-
     func stat(path: WorkspacePath) async throws -> FileInfo {
         try await authorize(
             .init(
@@ -157,7 +153,7 @@ final class ShellPermissionedFileSystem: FileSystem, @unchecked Sendable {
     }
 
     func createSymlink(path: WorkspacePath, target: String) async throws {
-        let normalizedTarget = try WorkspacePath(validating: target, relativeTo: path.dirname)
+        let normalizedTarget = try WorkspacePath(target, relativeTo: path.parent)
         try await authorize(
             .init(
                 command: commandName,
@@ -254,7 +250,7 @@ final class ShellPermissionedFileSystem: FileSystem, @unchecked Sendable {
     }
 
     func glob(pattern: String, currentDirectory: WorkspacePath) async throws -> [WorkspacePath] {
-        let normalizedPattern = try WorkspacePath(validating: pattern, relativeTo: currentDirectory)
+        let normalizedPattern = try WorkspacePath(pattern, relativeTo: currentDirectory)
         try await authorize(
             .init(
                 command: commandName,
