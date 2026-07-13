@@ -28,11 +28,9 @@ struct ContentView: View {
         func setup() async {
             do {
                 let rootURL = try Self.prepareWorkspaceRoot()
-                let filesystem = ReadWriteFilesystem()
                 let configuredSession = try await BashSession(
                     rootDirectory: rootURL,
                     options: .init(
-                        filesystem: filesystem,
                         layout: .unixLike,
                         initialEnvironment: [:],
                         enableGlobbing: true,

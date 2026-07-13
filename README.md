@@ -25,7 +25,7 @@ Add `Bash` to your `Package.swift`:
 ```swift
 // Package.swift
 .dependencies: [
-    .package(url: "https://github.com/velos/Bash.swift.git", from: "0.1.0")
+    .package(url: "https://github.com/velos/Bash.swift.git", from: "0.6.0")
 ],
 .targets: [
     .target(
@@ -41,7 +41,7 @@ Traits are the way to compile optional toolsets into the package. Traits are def
 .dependencies: [
     .package(
         url: "https://github.com/velos/Bash.swift.git",
-        from: "0.1.0",
+        from: "0.6.0",
         traits: ["Git", "Python", "SQLite", "Secrets"]
     )
 ]
@@ -160,29 +160,31 @@ Example:
 ```swift
 import Workspace
 
-let filesystem = PermissionedFileSystem(
-    base: try OverlayFilesystem(rootDirectory: workspaceRoot),
-    authorizer: PermissionAuthorizer { request in
-        switch request.operation {
-        case .readFile, .listDirectory, .stat:
-            return .allowForSession
-        default:
-            return .deny(message: "write access denied")
-        }
-    }
+let rules = RuleBasedPermissionAuthorizer(
+    rules: [
+        PermissionRule(
+            operations: [.readFile, .listDirectory, .stat],
+            pathPrefix: "/workspace",
+            effect: .allow
+        )
+    ]
+)
+let filesystem = AuthorizedFileSystem(
+    base: try OverlayFileSystem(root: workspaceRoot),
+    authorizer: rules
 )
 
-let workspace = Workspace(filesystem: filesystem)
+let workspace = Workspace(fileSystem: filesystem)
 let tree = try await workspace.summarizeTree("/workspace", maxDepth: 2)
 ```
 
 `BashSession` exposes the same workspace abstraction. When you initialize a session with a
-filesystem, the session creates `Workspace(filesystem:)` over that filesystem. When you initialize
-with an existing `Workspace`, the shell uses `workspace.filesystem`, which lets multiple sessions
+filesystem, the session creates `Workspace(fileSystem:)` over that filesystem. When you initialize
+with an existing `Workspace`, the shell uses `workspace.fileSystem`, which lets multiple sessions
 share filesystem state.
 
 ```swift
-let filesystem = InMemoryFilesystem()
+let filesystem = InMemoryFileSystem()
 let first = try await BashSession(
     options: SessionOptions(filesystem: filesystem, layout: .rootOnly)
 )
@@ -248,16 +250,18 @@ Important notes:
 ## Filesystem Model
 
 Filesystems available via [Workspace](https://github.com/velos/Workspace):
-- `ReadWriteFilesystem`: rooted real disk I/O
-- `InMemoryFilesystem`: fully in-memory tree
-- `OverlayFilesystem`: snapshots an on-disk root into memory; later writes stay in memory
-- `MountableFilesystem`: composes multiple filesystems under virtual mount points
-- `SandboxFilesystem`: container-root chooser (`documents`, `caches`, `temporary`, app group, custom URL)
-- `SecurityScopedFilesystem`: security-scoped URL or bookmark-backed root
+- `LocalFileSystem`: rooted real disk I/O
+- `InMemoryFileSystem`: fully in-memory tree
+- `OverlayFileSystem`: snapshots an on-disk root into memory; later writes stay in memory
+- `MountedFileSystem`: composes multiple filesystems under virtual mount points
+- `SandboxFileSystem`: container-root chooser (`documents`, `caches`, `temporary`, app group, custom URL)
+- `SecurityScopedFileSystem`: security-scoped URL or bookmark-backed root
+- `AuthorizedFileSystem`: permission-authorized wrapper around another filesystem
+- `LimitedFileSystem`: capacity-limited wrapper around another filesystem
 
 Behavior guarantees:
 - All shell-visible paths are scoped to the configured filesystem root
-- `ReadWriteFilesystem` blocks symlink escapes outside the root
+- `LocalFileSystem` blocks symlink escapes outside the root
 - Filesystem implementations reject paths containing null bytes
 - Built-in command stubs are created under `/bin` and `/usr/bin` for unix-like layouts
 - Unsupported platform features surface as runtime unsupported errors from `Bash` or `Workspace`
@@ -265,14 +269,14 @@ Behavior guarantees:
 Rootless session example:
 
 ```swift
-let options = SessionOptions(filesystem: InMemoryFilesystem(), layout: .unixLike)
+let options = SessionOptions(filesystem: InMemoryFileSystem(), layout: .unixLike)
 let session = try await BashSession(options: options)
 ```
 
 Workspace-backed session example:
 
 ```swift
-let workspace = Workspace(filesystem: InMemoryFilesystem())
+let workspace = Workspace(fileSystem: InMemoryFileSystem())
 let session = try await BashSession(
     options: SessionOptions(workspace: workspace, layout: .rootOnly)
 )
@@ -369,4 +373,4 @@ libgit2 is distributed under [GPL v2 with a linking exception](https://github.co
 
 ### Workspace
 
-`Bash.swift` sits on top of the [velos/Workspace](https://github.com/velos/Workspace) package for its filesystem and workspace tooling. The `ReadWriteFilesystem`, `InMemoryFilesystem`, `OverlayFilesystem`, `MountableFilesystem`, `SandboxFilesystem`, and `SecurityScopedFilesystem` types listed above are all provided by `Workspace` and reexported from `Bash`.
+`Bash.swift` sits on top of the [velos/Workspace](https://github.com/velos/Workspace) package for its filesystem and workspace tooling. The filesystem types listed above are provided by `Workspace` and reexported from `Bash`.
