@@ -4,11 +4,11 @@ import Testing
 
 @Suite("Filesystem Options")
 struct FilesystemOptionsTests {
-    @Test("rootless session init works with InMemoryFilesystem")
-    func rootlessSessionInitWorksWithInMemoryFilesystem() async throws {
+    @Test("rootless session init works with InMemoryFileSystem")
+    func rootlessSessionInitWorksWithInMemoryFileSystem() async throws {
         let session = try await BashSession(
             options: SessionOptions(
-                filesystem: InMemoryFilesystem(),
+                filesystem: InMemoryFileSystem(),
                 layout: .unixLike,
                 initialEnvironment: [:],
                 enableGlobbing: true,
@@ -28,7 +28,7 @@ struct FilesystemOptionsTests {
     func filesystemBackedSessionExposesWorkspaceSharingFilesystem() async throws {
         let session = try await BashSession(
             options: SessionOptions(
-                filesystem: InMemoryFilesystem(),
+                filesystem: InMemoryFileSystem(),
                 layout: .rootOnly
             )
         )
@@ -36,13 +36,13 @@ struct FilesystemOptionsTests {
         let write = await session.run("printf hello > /note.txt")
         #expect(write.exitCode == 0)
 
-        let content = try await session.workspace.readFile("/note.txt")
+        let content = try await session.workspace.readText("/note.txt")
         #expect(content == "hello")
     }
 
     @Test("workspace-backed sessions share workspace filesystem")
     func workspaceBackedSessionsShareWorkspaceFilesystem() async throws {
-        let workspace = Workspace(filesystem: InMemoryFilesystem())
+        let workspace = Workspace(fileSystem: InMemoryFileSystem())
         let first = try await BashSession(
             options: SessionOptions(workspace: workspace, layout: .rootOnly)
         )
@@ -50,8 +50,8 @@ struct FilesystemOptionsTests {
             options: SessionOptions(workspace: workspace, layout: .rootOnly)
         )
 
-        #expect(first.workspace.workspaceId == workspace.workspaceId)
-        #expect(second.workspace.workspaceId == workspace.workspaceId)
+        #expect(first.workspace.workspaceID == workspace.workspaceID)
+        #expect(second.workspace.workspaceID == workspace.workspaceID)
 
         let write = await first.run("printf shared > /shared.txt")
         #expect(write.exitCode == 0)
@@ -60,27 +60,27 @@ struct FilesystemOptionsTests {
         #expect(read.exitCode == 0)
         #expect(read.stdoutString == "shared")
 
-        let content = try await workspace.readFile("/shared.txt")
+        let content = try await workspace.readText("/shared.txt")
         #expect(content == "shared")
     }
 
-    @Test("root directory configures workspace-backed read-write filesystem")
-    func rootDirectoryConfiguresWorkspaceBackedReadWriteFilesystem() async throws {
+    @Test("pre-rooted workspace-backed session writes through to disk")
+    func preRootedWorkspaceBackedSessionWritesThroughToDisk() async throws {
         let root = try TestSupport.makeTempDirectory(prefix: "BashWorkspaceBacked")
         defer { TestSupport.removeDirectory(root) }
 
-        let workspace = Workspace(filesystem: ReadWriteFilesystem())
+        let workspace = Workspace(fileSystem: try LocalFileSystem(root: root))
         let session = try await BashSession(
             rootDirectory: root,
             options: SessionOptions(workspace: workspace, layout: .rootOnly)
         )
 
-        #expect(session.workspace.workspaceId == workspace.workspaceId)
+        #expect(session.workspace.workspaceID == workspace.workspaceID)
 
         let write = await session.run("printf disk > /disk.txt")
         #expect(write.exitCode == 0)
 
-        let workspaceContent = try await workspace.readFile("/disk.txt")
+        let workspaceContent = try await workspace.readText("/disk.txt")
         #expect(workspaceContent == "disk")
 
         let diskContent = try String(
@@ -92,14 +92,14 @@ struct FilesystemOptionsTests {
 
     @Test("session options workspace and filesystem setters switch authoritative source")
     func sessionOptionsWorkspaceAndFilesystemSettersSwitchAuthoritativeSource() async throws {
-        let workspaceFilesystem = InMemoryFilesystem()
-        let workspace = Workspace(filesystem: workspaceFilesystem)
-        let replacementFilesystem = InMemoryFilesystem()
-        var options = SessionOptions(filesystem: InMemoryFilesystem(), layout: .rootOnly)
+        let workspaceFilesystem = InMemoryFileSystem()
+        let workspace = Workspace(fileSystem: workspaceFilesystem)
+        let replacementFilesystem = InMemoryFileSystem()
+        var options = SessionOptions(filesystem: InMemoryFileSystem(), layout: .rootOnly)
 
         options.workspace = workspace
-        #expect(options.workspace?.workspaceId == workspace.workspaceId)
-        try await options.filesystem.writeFile(
+        #expect(options.workspace?.workspaceID == workspace.workspaceID)
+        try await options.filesystem?.writeFile(
             path: WorkspacePath(normalizing: "/workspace-option.txt"),
             data: Data("workspace".utf8),
             append: false
@@ -108,7 +108,7 @@ struct FilesystemOptionsTests {
 
         options.filesystem = replacementFilesystem
         #expect(options.workspace == nil)
-        try await options.filesystem.writeFile(
+        try await options.filesystem?.writeFile(
             path: WorkspacePath(normalizing: "/replacement-option.txt"),
             data: Data("replacement".utf8),
             append: false
@@ -119,9 +119,9 @@ struct FilesystemOptionsTests {
 
     @Test("bash reexports native workspace filesystem types")
     func bashReexportsNativeWorkspaceFilesystemTypes() async throws {
-        let workspaceFilesystem: any FileSystem = InMemoryFilesystem()
+        let workspaceFilesystem: any FileSystem = InMemoryFileSystem()
         let shellFilesystem: any FileSystem = workspaceFilesystem
-        let inMemoryFilesystem = InMemoryFilesystem()
+        let inMemoryFilesystem = InMemoryFileSystem()
         try await inMemoryFilesystem.writeFile(
             path: WorkspacePath(normalizing: "/note.txt"),
             data: Data("native".utf8),
@@ -155,7 +155,7 @@ struct FilesystemOptionsTests {
 
         let session = try await BashSession(
             options: SessionOptions(
-                filesystem: try await OverlayFilesystem(rootDirectory: root),
+                filesystem: try await OverlayFileSystem(root: root),
                 layout: .rootOnly
             )
         )
@@ -177,7 +177,7 @@ struct FilesystemOptionsTests {
 
     @Test("mountable filesystem can combine roots and copy across mounts")
     func mountableFilesystemCanCombineRootsAndCopyAcrossMounts() async throws {
-        let base = InMemoryFilesystem()
+        let base = InMemoryFileSystem()
         let workspaceRoot = try TestSupport.makeTempDirectory(prefix: "BashMountWorkspace")
         defer { TestSupport.removeDirectory(workspaceRoot) }
 
@@ -185,16 +185,16 @@ struct FilesystemOptionsTests {
         defer { TestSupport.removeDirectory(docsRoot) }
         try Data("guide".utf8).write(to: docsRoot.appendingPathComponent("guide.txt"))
 
-        let mountable = MountableFilesystem(
+        let mountable = MountedFileSystem(
             base: base,
             mounts: [
-                MountableFilesystem.Mount(
+                MountedFileSystem.Mount(
                     mountPoint: "/workspace",
-                    filesystem: try await OverlayFilesystem(rootDirectory: workspaceRoot)
+                    fileSystem: try await OverlayFileSystem(root: workspaceRoot)
                 ),
-                MountableFilesystem.Mount(
+                MountedFileSystem.Mount(
                     mountPoint: "/docs",
-                    filesystem: try await OverlayFilesystem(rootDirectory: docsRoot)
+                    fileSystem: try await OverlayFileSystem(root: docsRoot)
                 ),
             ]
         )
@@ -221,24 +221,24 @@ struct FilesystemOptionsTests {
         #expect(!FileManager.default.fileExists(atPath: workspaceRoot.appendingPathComponent("guide.txt").path))
     }
 
-    @Test("rootless session init rejects unconfigured read-write filesystem")
-    func rootlessSessionInitRejectsUnconfiguredReadWriteFilesystem() async {
-        do {
-            _ = try await BashSession(
-                options: SessionOptions(
-                    filesystem: ReadWriteFilesystem(),
-                    layout: .unixLike,
-                    initialEnvironment: [:],
-                    enableGlobbing: true,
-                    maxHistory: 1_000
-                )
+    @Test("rootless session init defaults to an in-memory filesystem")
+    func rootlessSessionInitDefaultsToInMemoryFilesystem() async throws {
+        let filename = "default-fs-\(UUID().uuidString).txt"
+        let session = try await BashSession(
+            options: SessionOptions(
+                layout: .rootOnly,
+                initialEnvironment: [:],
+                enableGlobbing: true,
+                maxHistory: 1_000
             )
-            Issue.record("expected unsupported error")
-        } catch let error as WorkspaceError {
-            #expect(error.description.contains("filesystem is not configured"))
-        } catch {
-            Issue.record("unexpected error: \(error)")
-        }
+        )
+
+        let create = await session.run("printf hi > /\(filename)")
+        #expect(create.exitCode == 0)
+
+        let read = await session.run("cat /\(filename)")
+        #expect(read.stdoutString == "hi")
+        #expect(!FileManager.default.fileExists(atPath: "/\(filename)"))
     }
 
     @Test("sandbox temporary root read-write smoke")
@@ -246,7 +246,7 @@ struct FilesystemOptionsTests {
         let filename = "bashswift-\(UUID().uuidString).txt"
         let session = try await BashSession(
             options: SessionOptions(
-                filesystem: SandboxFilesystem(root: .temporary),
+                filesystem: SandboxFileSystem(root: .temporary),
                 layout: .rootOnly,
                 initialEnvironment: [:],
                 enableGlobbing: true,
@@ -266,17 +266,17 @@ struct FilesystemOptionsTests {
 
     @Test("sandbox documents and caches roots configure")
     func sandboxDocumentsAndCachesRootsConfigure() async throws {
-        let documents = try SandboxFilesystem(root: .documents)
+        let documents = try SandboxFileSystem(root: .documents)
         #expect(await documents.exists(path: "/"))
 
-        let caches = try SandboxFilesystem(root: .caches)
+        let caches = try SandboxFileSystem(root: .caches)
         #expect(await caches.exists(path: "/"))
     }
 
     @Test("sandbox app group invalid id throws unsupported")
     func sandboxAppGroupInvalidIDThrowsUnsupported() {
         do {
-            _ = try SandboxFilesystem(root: .appGroup("invalid.group.\(UUID().uuidString)"))
+            _ = try SandboxFileSystem(root: .appGroup("invalid.group.\(UUID().uuidString)"))
             Issue.record("expected unsupported error")
         } catch let error as WorkspaceError {
             #expect(error.description.contains("app group"))
@@ -308,7 +308,7 @@ struct FilesystemOptionsTests {
         let tempURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
 
         do {
-            _ = try SecurityScopedFilesystem(url: tempURL)
+            _ = try SecurityScopedFileSystem(url: tempURL)
             Issue.record("expected unsupported error")
         } catch let error as WorkspaceError {
             #expect(error.description.contains("security-scoped URLs not supported"))
@@ -322,7 +322,7 @@ struct FilesystemOptionsTests {
         let root = try TestSupport.makeTempDirectory(prefix: "BashSecurityScoped")
         defer { TestSupport.removeDirectory(root) }
 
-        let readWriteFS = try SecurityScopedFilesystem(url: root, mode: .readWrite)
+        let readWriteFS = try SecurityScopedFileSystem(url: root, mode: .readWrite)
         try await readWriteFS.writeFile(path: "/note.txt", data: Data("hello".utf8), append: false)
 
         let bookmarkData = try readWriteFS.makeBookmarkData()
@@ -334,11 +334,11 @@ struct FilesystemOptionsTests {
 
         try await readWriteFS.saveBookmark(id: bookmarkID, store: store)
 
-        let restored = try await SecurityScopedFilesystem.loadBookmark(id: bookmarkID, store: store, mode: .readWrite)
+        let restored = try await SecurityScopedFileSystem.loadBookmark(id: bookmarkID, store: store, mode: .readWrite)
         let data = try await restored.readFile(path: "/note.txt")
         #expect(String(decoding: data, as: UTF8.self) == "hello")
 
-        let readOnly = try SecurityScopedFilesystem(bookmarkData: bookmarkData, mode: .readOnly)
+        let readOnly = try SecurityScopedFileSystem(bookmarkData: bookmarkData, mode: .readOnly)
 
         do {
             try await readOnly.writeFile(path: "/blocked.txt", data: Data("x".utf8), append: false)

@@ -36,7 +36,7 @@ enum PythonTestSupport {
         permissionHandler: (@Sendable (ShellPermissionRequest) async -> ShellPermissionDecision)? = nil
     ) async throws -> BashSession {
         let options = SessionOptions(
-            filesystem: InMemoryFilesystem(),
+            filesystem: InMemoryFileSystem(),
             networkPolicy: networkPolicy,
             permissionHandler: permissionHandler
         )

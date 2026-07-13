@@ -166,7 +166,7 @@ struct ParserAndFilesystemTests {
 
     @Test("cat missing file reports unix-style error")
     func catMissingFileReportsUnixStyleError() async throws {
-        let (session, root) = try await TestSupport.makeSession(filesystem: InMemoryFilesystem())
+        let (session, root) = try await TestSupport.makeSession(filesystem: InMemoryFileSystem())
         defer { TestSupport.removeDirectory(root) }
 
         let result = await session.run("cat /etc/os-version")
@@ -196,8 +196,11 @@ struct ParserAndFilesystemTests {
 
     @Test("workspace paths reject null bytes")
     func workspacePathsRejectNullBytes() {
+        // Pass a String variable so overload resolution picks the throwing initializer
+        // instead of the string-literal one, which traps on null bytes.
+        let invalidPath = "/bad\u{0}name"
         do {
-            _ = try WorkspacePath(validating: "/bad\u{0}name")
+            _ = try WorkspacePath(invalidPath)
             Issue.record("expected workspace path validation to reject null bytes")
         } catch {
             #expect("\(error)".contains("null byte"))
@@ -225,7 +228,7 @@ struct ParserAndFilesystemTests {
         let session = try await BashSession(
             rootDirectory: root,
             options: SessionOptions(
-                filesystem: InMemoryFilesystem(),
+                filesystem: InMemoryFileSystem(),
                 layout: .unixLike,
                 initialEnvironment: [:],
                 enableGlobbing: true,

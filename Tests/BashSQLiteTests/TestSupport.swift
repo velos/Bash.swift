@@ -15,13 +15,13 @@ enum SQLiteTestSupport {
         let root = try makeTempDirectory()
         let session = try await BashSession(
             rootDirectory: root,
-            options: SessionOptions(filesystem: ReadWriteFilesystem(), layout: .unixLike)
+            options: SessionOptions(layout: .unixLike)
         )
         return (session, root)
     }
 
     static func makeInMemorySession() async throws -> BashSession {
-        let options = SessionOptions(filesystem: InMemoryFilesystem(), layout: .unixLike)
+        let options = SessionOptions(filesystem: InMemoryFileSystem(), layout: .unixLike)
         return try await BashSession(options: options)
     }
 

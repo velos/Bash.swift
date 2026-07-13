@@ -19,7 +19,6 @@ enum GitTestSupport {
         let session = try await BashSession(
             rootDirectory: root,
             options: SessionOptions(
-                filesystem: ReadWriteFilesystem(),
                 layout: .unixLike,
                 networkPolicy: networkPolicy,
                 permissionHandler: permissionHandler
@@ -34,7 +33,7 @@ enum GitTestSupport {
     ) async throws -> BashSession {
         let session = try await BashSession(
             options: SessionOptions(
-                filesystem: InMemoryFilesystem(),
+                filesystem: InMemoryFileSystem(),
                 layout: .unixLike,
                 networkPolicy: networkPolicy,
                 permissionHandler: permissionHandler

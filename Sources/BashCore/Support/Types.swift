@@ -140,12 +140,16 @@ public struct DefaultSecretOutputRedactor: SecretOutputRedacting {
 }
 
 public struct SessionOptions: Sendable {
-    private var filesystemStore: any FileSystem
+    private var filesystemStore: (any FileSystem)?
     private var workspaceStore: Workspace?
 
-    public var filesystem: any FileSystem {
+    /// The filesystem the session operates on. When `nil`, `BashSession(rootDirectory:)` creates a
+    /// `LocalFileSystem` rooted at its `rootDirectory`, and `BashSession()` creates an
+    /// `InMemoryFileSystem`. When set (directly or via `workspace`), the filesystem must already be
+    /// rooted; `rootDirectory` is not applied to it.
+    public var filesystem: (any FileSystem)? {
         get {
-            workspaceStore?.filesystem ?? filesystemStore
+            workspaceStore?.fileSystem ?? filesystemStore
         }
         set {
             filesystemStore = newValue
@@ -160,7 +164,7 @@ public struct SessionOptions: Sendable {
         set {
             workspaceStore = newValue
             if let newValue {
-                filesystemStore = newValue.filesystem
+                filesystemStore = newValue.fileSystem
             }
         }
     }
@@ -177,7 +181,7 @@ public struct SessionOptions: Sendable {
     public var secretOutputRedactor: any SecretOutputRedacting
 
     public init(
-        filesystem: any FileSystem = ReadWriteFilesystem(),
+        filesystem: (any FileSystem)? = nil,
         layout: SessionLayout = .unixLike,
         initialEnvironment: [String: String] = [:],
         enableGlobbing: Bool = true,
@@ -216,7 +220,7 @@ public struct SessionOptions: Sendable {
         secretResolver: (any SecretReferenceResolving)? = nil,
         secretOutputRedactor: any SecretOutputRedacting = DefaultSecretOutputRedactor()
     ) {
-        self.filesystemStore = workspace.filesystem
+        self.filesystemStore = workspace.fileSystem
         self.workspaceStore = workspace
         self.layout = layout
         self.initialEnvironment = initialEnvironment
