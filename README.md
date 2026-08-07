@@ -207,6 +207,11 @@ public final actor BashSession {
     public func run(_ commandLine: String, stdin: Data = Data()) async -> CommandResult
     public func run(_ commandLine: String, options: RunOptions) async -> CommandResult
     public func register(_ command: any BuiltinCommand.Type) async
+    public func registerHostCommand(
+        _ descriptor: HostCommandDescriptor,
+        authorize: @escaping @Sendable (HostCommandRequest) async -> HostCommandAuthorization,
+        execute: @escaping @Sendable (HostCommandRequest) async throws -> CommandResult
+    ) async throws
 }
 ```
 
@@ -219,6 +224,7 @@ High-level types:
 - `SessionOptions`: filesystem or workspace, layout, initial environment, globbing, history length, network policy, execution limits, permission callback, and secret policy
 - `ShellPermissionRequest` / `ShellPermissionDecision`: shell-facing permission callback types
 - `ShellNetworkPolicy`: built-in outbound network policy
+- `HostCommandDescriptor` / `HostCommandRequest`: explicit, per-invocation-authorized integration for application-owned host tools; see [Host Command Adapters](docs/host-command-adapters.md)
 
 Practical behavior:
 - `BashSession.init` can throw during setup
@@ -239,11 +245,13 @@ Current hardening layers include:
 - Execution budgets through `ExecutionLimits`
 - Strict `Python` trait shims that block process and FFI escape APIs
 - Secret-reference resolution and redaction policies
+- Opt-in host command adapters with per-invocation authorization and explicit environment forwarding
 
 Important notes:
 - Outbound HTTP(S) is disabled by default
 - `permissionHandler` applies after the built-in network policy passes
 - Permission wait time is excluded from `timeout` and run-level wall-clock accounting
+- No host executables are discovered or launched by default; registering a host adapter does not grant it blanket authorization
 - `curl` / `wget`, `git clone`, and `Python` trait socket connections share the same network policy path
 - `data:` URLs and jailed `file:` URLs do not trigger outbound network checks
 

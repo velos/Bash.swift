@@ -14,6 +14,34 @@ actor PermissionProbe {
     }
 }
 
+private actor HostCommandProbe {
+    private var authorizationRequests: [HostCommandRequest] = []
+    private var executionRequests: [HostCommandRequest] = []
+
+    func authorize(_ request: HostCommandRequest) -> HostCommandAuthorization {
+        authorizationRequests.append(request)
+        return request.arguments == ["--version"]
+            ? .allow
+            : .deny(message: "only --version is allowed")
+    }
+
+    func execute(_ request: HostCommandRequest) -> CommandResult {
+        executionRequests.append(request)
+        let token = request.environment["TOKEN"] ?? "missing"
+        let input = String(decoding: request.stdin, as: UTF8.self)
+        let output = "\(request.commandName)|\(request.arguments.joined(separator: ","))|\(request.virtualCurrentDirectory)|\(token)|\(input)"
+        return CommandResult(stdout: Data(output.utf8), stderr: Data(), exitCode: 0)
+    }
+
+    func counts() -> (authorization: Int, execution: Int) {
+        (authorizationRequests.count, executionRequests.count)
+    }
+
+    func lastExecution() -> HostCommandRequest? {
+        executionRequests.last
+    }
+}
+
 @Suite("Session Integration")
 struct SessionIntegrationTests {
     @Test("touch then ls mutates read-write filesystem")
@@ -33,6 +61,54 @@ struct SessionIntegrationTests {
             .appendingPathComponent("file.txt")
             .path
         #expect(FileManager.default.fileExists(atPath: physicalPath))
+    }
+
+    @Test("host command adapters require authorization and explicit environment forwarding")
+    func hostCommandAdaptersRequireAuthorizationAndExplicitEnvironmentForwarding() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let unavailable = await session.run("swift --version")
+        #expect(unavailable.exitCode == 127)
+
+        let probe = HostCommandProbe()
+        try await session.registerHostCommand(
+            HostCommandDescriptor(
+                name: "host-swift",
+                aliases: ["swift"],
+                overview: "Run approved Swift operations",
+                forwardedEnvironmentKeys: ["TOKEN"]
+            ),
+            authorize: { request in
+                await probe.authorize(request)
+            },
+            execute: { request in
+                await probe.execute(request)
+            }
+        )
+
+        let allowed = await session.run(
+            "swift --version",
+            options: RunOptions(
+                stdin: Data("payload".utf8),
+                environment: ["TOKEN": "forwarded", "SECRET": "withheld"]
+            )
+        )
+        #expect(allowed.exitCode == 0)
+        #expect(allowed.stdoutString == "swift|--version|/home/user|forwarded|payload")
+
+        let execution = try #require(await probe.lastExecution())
+        #expect(execution.environment == ["TOKEN": "forwarded"])
+        #expect(execution.arguments == ["--version"])
+        #expect(execution.stdin == Data("payload".utf8))
+
+        let denied = await session.run("swift build")
+        #expect(denied.exitCode == 126)
+        #expect(denied.stderrString == "swift: host execution denied: only --version is allowed\n")
+
+        let counts = await probe.counts()
+        #expect(counts.authorization == 2)
+        #expect(counts.execution == 1)
     }
 
     @Test("pipe and output redirection")
