@@ -2009,6 +2009,38 @@ struct SessionIntegrationTests {
         #expect(yqExit.exitCode == 1)
     }
 
+    @Test("jq supports transcript argument bindings and object construction")
+    func jqArgumentBindingsAndObjectConstruction() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let stringBinding = await session.run("jq -nc --arg name 'Bash.swift' '{name: $name}'")
+        #expect(stringBinding.exitCode == 0)
+        #expect(stringBinding.stdoutString == "{\"name\":\"Bash.swift\"}\n")
+
+        let jsonBinding = await session.run("jq -nc --argjson count 3 '{count: $count}'")
+        #expect(jsonBinding.exitCode == 0)
+        #expect(jsonBinding.stdoutString == "{\"count\":3}\n")
+
+        let selected = await session.run(
+            "printf '{\"items\":[{\"id\":\"a\"},{\"id\":\"b\"}]}' | jq -c --arg id b '.items[] | select(.id == $id)'"
+        )
+        #expect(selected.exitCode == 0)
+        #expect(selected.stdoutString == "{\"id\":\"b\"}\n")
+
+        _ = await session.run("printf '{\"id\":1}' > left.json")
+        _ = await session.run("printf '{\"id\":2}\\n{\"id\":3}\\n' > right.json")
+        let slurped = await session.run(
+            "jq -ncS --slurpfile left left.json --slurpfile right right.json '{left: $left, right: $right}'"
+        )
+        #expect(slurped.exitCode == 0)
+        #expect(slurped.stdoutString == "{\"left\":[{\"id\":1}],\"right\":[{\"id\":2},{\"id\":3}]}\n")
+
+        let invalid = await session.run("jq -n --argjson value nope '$value'")
+        #expect(invalid.exitCode == 2)
+        #expect(invalid.stderrString.contains("--argjson value"))
+    }
+
     @Test("curl command basic data and file usage")
     func curlCommandBasicDataAndFileUsage() async throws {
         let (session, root) = try await TestSupport.makeSession(networkPolicy: .unrestricted)

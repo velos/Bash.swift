@@ -4,54 +4,202 @@ import BashCore
 
 struct JqCommand: BuiltinCommand {
     struct Options: ParsableArguments {
-        @Flag(name: .short, help: "Output raw strings")
-        var r = false
-
-        @Flag(name: [.short, .customLong("compact-output")], help: "Compact JSON output")
-        var c = false
-
-        @Flag(name: .short, help: "Set exit status based on output")
-        var e = false
-
-        @Flag(name: [.short, .customLong("slurp")], help: "Read all input values into an array")
-        var s = false
-
-        @Flag(name: [.short, .customLong("null-input")], help: "Do not read input")
-        var n = false
-
-        @Flag(name: [.short, .customLong("join-output")], help: "Suppress newline between outputs")
-        var j = false
-
-        @Flag(name: [.short, .customLong("sort-keys")], help: "Sort object keys in output")
-        var S = false
-
-        @Argument(help: "Query expression")
-        var query: String
-
-        @Argument(help: "Optional files")
-        var files: [String] = []
+        @Argument(parsing: .captureForPassthrough, help: "Options, query expression, and optional files")
+        var arguments: [String] = []
     }
 
     static let name = "jq"
     static let overview = "Process JSON data with a simple query language"
 
     static func run(context: inout CommandContext, options: Options) async -> Int32 {
-        await StructuredDataQueryRunner.run(
+        if options.arguments.contains("--help") || options.arguments.contains("-h") {
+            context.writeStdout(
+                """
+                OVERVIEW: Process JSON data with a simple query language
+
+                USAGE: jq [OPTION]... FILTER [FILE]...
+
+                OPTIONS:
+                  -r, --raw-output       output strings without JSON quoting
+                  -c, --compact-output   output compact JSON
+                  -e, --exit-status      set status from the last output value
+                  -s, --slurp            read all input values into an array
+                  -n, --null-input       use null as the single input value
+                  -j, --join-output      suppress newlines between outputs
+                  -S, --sort-keys        sort object keys in output
+                      --arg NAME VALUE    bind VALUE as a string
+                      --argjson NAME JSON bind a parsed JSON value
+                      --slurpfile NAME FILE bind the file's JSON values as an array
+
+                """
+            )
+            return 0
+        }
+
+        let invocation: Invocation
+        switch parseInvocation(options.arguments) {
+        case .success(let parsed):
+            invocation = parsed
+        case .failure(let message):
+            context.writeStderr("jq: \(message)\n")
+            return 2
+        }
+
+        var variables: [String: Any] = [:]
+        for binding in invocation.bindings {
+            switch binding.value {
+            case .string(let value):
+                variables[binding.name] = value
+            case .json(let source):
+                do {
+                    variables[binding.name] = try StructuredDataParsers.parseJSONDocument(source)
+                } catch {
+                    context.writeStderr("jq: invalid JSON text passed to --argjson \(binding.name)\n")
+                    return 2
+                }
+            case .slurpFile(let path):
+                do {
+                    let data = try await context.filesystem.readFile(path: context.resolvePath(path))
+                    variables[binding.name] = try StructuredDataParsers.parseJSONSequence(CommandIO.decodeString(data))
+                } catch {
+                    context.writeStderr("jq: \(path): \(error)\n")
+                    return 2
+                }
+            }
+        }
+
+        return await StructuredDataQueryRunner.run(
             context: &context,
             commandName: name,
-            query: options.query,
-            files: options.files,
+            query: invocation.query,
+            files: invocation.files,
             parseDocument: StructuredDataParsers.parseJSONDocument,
             options: StructuredDataQueryRunner.Options(
-                rawOutput: options.r,
-                compactOutput: options.c,
-                sortKeys: options.S,
-                joinOutput: options.j,
-                exitStatus: options.e,
-                slurp: options.s,
-                nullInput: options.n
-            )
+                rawOutput: invocation.rawOutput,
+                compactOutput: invocation.compactOutput,
+                sortKeys: invocation.sortKeys,
+                joinOutput: invocation.joinOutput,
+                exitStatus: invocation.exitStatus,
+                slurp: invocation.slurp,
+                nullInput: invocation.nullInput
+            ),
+            variables: variables
         )
+    }
+
+    private struct Invocation {
+        var rawOutput = false
+        var compactOutput = false
+        var exitStatus = false
+        var slurp = false
+        var nullInput = false
+        var joinOutput = false
+        var sortKeys = false
+        var bindings: [Binding] = []
+        var query = ""
+        var files: [String] = []
+    }
+
+    private struct Binding {
+        let name: String
+        let value: BindingValue
+    }
+
+    private enum BindingValue {
+        case string(String)
+        case json(String)
+        case slurpFile(String)
+    }
+
+    private enum ParseOutcome {
+        case success(Invocation)
+        case failure(String)
+    }
+
+    private static func parseInvocation(_ arguments: [String]) -> ParseOutcome {
+        var invocation = Invocation()
+        var operands: [String] = []
+        var parsingOptions = true
+        var index = 0
+
+        while index < arguments.count {
+            let argument = arguments[index]
+            if parsingOptions, argument == "--" {
+                parsingOptions = false
+                index += 1
+                continue
+            }
+
+            if parsingOptions, ["--arg", "--argjson", "--slurpfile"].contains(argument) {
+                guard index + 2 < arguments.count else {
+                    return .failure("\(argument) requires a name and value")
+                }
+                let name = arguments[index + 1]
+                guard isValidVariableName(name) else {
+                    return .failure("invalid variable name: \(name)")
+                }
+                let rawValue = arguments[index + 2]
+                let value: BindingValue
+                switch argument {
+                case "--arg": value = .string(rawValue)
+                case "--argjson": value = .json(rawValue)
+                default: value = .slurpFile(rawValue)
+                }
+                invocation.bindings.append(Binding(name: name, value: value))
+                index += 3
+                continue
+            }
+
+            if parsingOptions, argument.hasPrefix("--") {
+                switch argument {
+                case "--raw-output": invocation.rawOutput = true
+                case "--compact-output": invocation.compactOutput = true
+                case "--exit-status": invocation.exitStatus = true
+                case "--slurp": invocation.slurp = true
+                case "--null-input": invocation.nullInput = true
+                case "--join-output": invocation.joinOutput = true
+                case "--sort-keys": invocation.sortKeys = true
+                default: return .failure("unknown option: \(argument)")
+                }
+                index += 1
+                continue
+            }
+
+            if parsingOptions, argument.hasPrefix("-"), argument != "-" {
+                for flag in argument.dropFirst() {
+                    switch flag {
+                    case "r": invocation.rawOutput = true
+                    case "c": invocation.compactOutput = true
+                    case "e": invocation.exitStatus = true
+                    case "s": invocation.slurp = true
+                    case "n": invocation.nullInput = true
+                    case "j": invocation.joinOutput = true
+                    case "S": invocation.sortKeys = true
+                    default: return .failure("unknown option: -\(flag)")
+                    }
+                }
+                index += 1
+                continue
+            }
+
+            parsingOptions = false
+            operands.append(argument)
+            index += 1
+        }
+
+        guard let query = operands.first else {
+            return .failure("missing query expression")
+        }
+        invocation.query = query
+        invocation.files = Array(operands.dropFirst())
+        return .success(invocation)
+    }
+
+    private static func isValidVariableName(_ value: String) -> Bool {
+        guard let first = value.first, first == "_" || first.isLetter else {
+            return false
+        }
+        return value.dropFirst().allSatisfy { $0 == "_" || $0.isLetter || $0.isNumber }
     }
 }
 
@@ -317,7 +465,8 @@ private enum StructuredDataQueryRunner {
         query: String,
         files: [String],
         parseDocument: DocumentParser,
-        options: Options
+        options: Options,
+        variables: [String: Any] = [:]
     ) async -> Int32 {
         let program: StructuredQueryProgram
         do {
@@ -363,7 +512,7 @@ private enum StructuredDataQueryRunner {
 
         for document in documents {
             do {
-                let values = try program.evaluate(input: document)
+                let values = try program.evaluate(input: document, variables: variables)
                 for value in values {
                     let rendered = try StructuredQueryRenderer.render(value, options: renderOptions)
                     context.writeStdout(rendered)
@@ -416,6 +565,20 @@ private enum StructuredDataParsers {
         } catch {
             throw ShellError.unsupported("invalid JSON input")
         }
+    }
+
+    static func parseJSONSequence(_ source: String) throws -> [Any] {
+        if let single = try? parseJSONDocument(source) {
+            return [single]
+        }
+
+        let nonemptyLines = source.split(whereSeparator: \Character.isNewline).filter {
+            !$0.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        guard !nonemptyLines.isEmpty else {
+            throw ShellError.unsupported("empty input")
+        }
+        return try nonemptyLines.map { try parseJSONDocument(String($0)) }
     }
 
     static func parseYQDocument(_ source: String) throws -> Any {
