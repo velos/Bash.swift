@@ -1463,17 +1463,20 @@ struct SessionIntegrationTests {
         let (session, root) = try await TestSupport.makeSession()
         defer { TestSupport.removeDirectory(root) }
 
-        _ = await session.run("sleep 5 &")
-        _ = await session.run("timeout 5 sleep 4 &")
+        // Keep the fixtures alive well beyond a loaded parallel test run. The
+        // test cancels and reaps both jobs below, so these durations do not
+        // increase its runtime.
+        _ = await session.run("sleep 300 &")
+        _ = await session.run("timeout 300 sleep 240 &")
 
         let byName = await session.run("pgrep -l '^sleep$'")
         #expect(byName.exitCode == 0)
         #expect(byName.stdoutString.contains("sleep"))
         #expect(byName.stdoutString.split(separator: "\n").count == 1)
 
-        let byFullCommand = await session.run("pgrep -fa 'sleep 4'")
+        let byFullCommand = await session.run("pgrep -fa 'sleep 240'")
         #expect(byFullCommand.exitCode == 0)
-        #expect(byFullCommand.stdoutString.contains("timeout 5 sleep 4"))
+        #expect(byFullCommand.stdoutString.contains("timeout 300 sleep 240"))
 
         let count = await session.run("pgrep -fc sleep")
         #expect(count.exitCode == 0)
@@ -1483,18 +1486,19 @@ struct SessionIntegrationTests {
         #expect(noHostVisibility.exitCode == 1)
         #expect(noHostVisibility.stdoutString.isEmpty)
 
-        let terminated = await session.run("pkill -f 'sleep 4'")
+        let terminated = await session.run("pkill -f 'sleep 240'")
         #expect(terminated.exitCode == 0)
 
         let remaining = await session.run("pgrep -fa sleep")
         #expect(remaining.exitCode == 0)
-        #expect(remaining.stdoutString.contains("sleep 5"))
-        #expect(!remaining.stdoutString.contains("sleep 4"))
+        #expect(remaining.stdoutString.contains("sleep 300"))
+        #expect(!remaining.stdoutString.contains("sleep 240"))
 
         let terminateLast = await session.run("pkill -KILL -x sleep")
         #expect(terminateLast.exitCode == 0)
         let noRemaining = await session.run("pgrep -f sleep")
         #expect(noRemaining.exitCode == 1)
+        _ = await session.run("wait")
     }
 
     @Test("diff command shows differences and status")
