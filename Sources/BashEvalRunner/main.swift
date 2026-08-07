@@ -3,6 +3,8 @@ import Bash
 import Foundation
 import Yams
 
+#if os(macOS)
+
 enum EngineKind: String, CaseIterable, ExpressibleByArgument {
     case bashswift = "bashswift"
     case systemBash = "system-bash"
@@ -368,6 +370,7 @@ private struct CommandsEnvelope: Decodable {
     }
 }
 
+@available(macOS 10.15, macCatalyst 13, iOS 13, tvOS 13, watchOS 6, *)
 struct BashEvalRunner: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "BashEvalRunner",
@@ -925,4 +928,26 @@ struct BashEvalRunner: AsyncParsableCommand {
     }
 }
 
+@available(macOS 10.15, macCatalyst 13, iOS 13, tvOS 13, watchOS 6, *)
+func runAsyncMain<Command: AsyncParsableCommand>(_ command: Command.Type) async {
+    await command.main(nil)
+}
+
+await runAsyncMain(BashEvalRunner.self)
+
+#else
+
+struct BashEvalRunner: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "BashEvalRunner",
+        abstract: "Run Bash.swift NL task eval profiles and emit a JSON report."
+    )
+
+    mutating func run() throws {
+        throw ValidationError("BashEvalRunner requires macOS because it executes /bin/bash host processes.")
+    }
+}
+
 BashEvalRunner.main()
+
+#endif

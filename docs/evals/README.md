@@ -88,6 +88,10 @@ For each task:
 
 `BashEvalRunner` is a lightweight local runner that reads the profile/task YAML,
 executes task setup + candidate commands + validators, and emits a JSON report.
+It is a macOS-only developer tool because setup, validation, agent commands, and
+the `system-bash` engine launch `/bin/bash` host processes. The Bash library
+remains available on every platform declared by the package; non-macOS package
+builds compile a runner stub that reports the platform requirement if invoked.
 
 ### Build
 

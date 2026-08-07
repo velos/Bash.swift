@@ -41,6 +41,14 @@ jobs:
         shell: bash
         run: swift build --build-tests
 
+      - name: Build package for iOS Simulator
+        shell: bash
+        run: |
+          SDK_PATH="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          swift build \
+            --triple arm64-apple-ios16.0-simulator \
+            --sdk "$SDK_PATH"
+
       - name: Run tests (all traits)
         shell: bash
         # `killByPIDAndJobSpec` is a pre-existing, deterministic failure in the
