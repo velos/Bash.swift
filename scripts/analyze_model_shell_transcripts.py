@@ -217,6 +217,62 @@ def command_names(command: str) -> list[str]:
     return names
 
 
+def command_invocations(command: str) -> list[tuple[str, list[str]]]:
+    """Return simple-command names and arguments from the supported token model."""
+    tokens = shell_tokens(command)
+    invocations: list[tuple[str, list[str]]] = []
+    expecting_command = True
+    active_name: str | None = None
+    active_arguments: list[str] = []
+    index = 0
+
+    def finish() -> None:
+        nonlocal active_name, active_arguments
+        if active_name is not None:
+            invocations.append((active_name, active_arguments))
+        active_name = None
+        active_arguments = []
+
+    while index < len(tokens):
+        token = tokens[index]
+        if token in SEPARATORS or token in {"(", ")"}:
+            finish()
+            expecting_command = True
+            index += 1
+            continue
+        if expecting_command:
+            if token in CONTROL_WORDS or token.startswith(("<", ">")) or ASSIGNMENT.match(token):
+                index += 1
+                continue
+            if token == "env":
+                index += 1
+                while index < len(tokens) and (ASSIGNMENT.match(tokens[index]) or tokens[index].startswith("-")):
+                    index += 1
+                continue
+            active_name = os.path.basename(token)
+            expecting_command = False
+        else:
+            active_arguments.append(token)
+        index += 1
+
+    finish()
+    return invocations
+
+
+def option_signature(arguments: list[str]) -> tuple[str, ...]:
+    """Keep option shapes while scrubbing attached values and numeric counts."""
+    result: list[str] = []
+    parse_options = True
+    for argument in arguments:
+        if parse_options and argument == "--":
+            result.append("--")
+            parse_options = False
+        elif parse_options and argument.startswith("-") and argument != "-":
+            option = argument.split("=", 1)[0] + ("=*" if "=" in argument else "")
+            result.append(re.sub(r"\d+", "#", option))
+    return tuple(result)
+
+
 SYNTAX_PATTERNS = {
     "pipeline": re.compile(r"(?<!\|)\|(?!\|)"),
     "and-chain": re.compile(r"&&"),
@@ -258,16 +314,23 @@ def main() -> None:
     parser.add_argument("--codex-root", action="append", type=pathlib.Path, default=[])
     parser.add_argument("--claude-root", action="append", type=pathlib.Path, default=[])
     parser.add_argument("--exclude-session", action="append", default=[])
+    parser.add_argument(
+        "--signature-command",
+        action="append",
+        default=[],
+        help="Include option-signature counts for this command (repeatable)",
+    )
     parser.add_argument("--top", type=int, default=50)
     args = parser.parse_args()
 
     codex_roots = args.codex_root or [pathlib.Path.home() / ".codex/sessions", pathlib.Path.home() / ".codex/archived_sessions"]
     claude_roots = args.claude_root or [pathlib.Path.home() / ".claude/projects"]
     excluded = set(args.exclude_session)
+    requested_signatures = set(args.signature_command)
 
     providers: dict[str, dict[str, Any]] = {
-        "openai": {"files": 0, "calls": 0, "models": collections.Counter(), "shapes": collections.Counter(), "commands": collections.Counter(), "syntax": collections.Counter()},
-        "anthropic": {"files": 0, "calls": 0, "models": collections.Counter(), "shapes": collections.Counter(), "commands": collections.Counter(), "syntax": collections.Counter()},
+        "openai": {"files": 0, "calls": 0, "models": collections.Counter(), "shapes": collections.Counter(), "commands": collections.Counter(), "syntax": collections.Counter(), "signatures": collections.defaultdict(collections.Counter)},
+        "anthropic": {"files": 0, "calls": 0, "models": collections.Counter(), "shapes": collections.Counter(), "commands": collections.Counter(), "syntax": collections.Counter(), "signatures": collections.defaultdict(collections.Counter)},
     }
 
     def record(provider: str, model: str, shape: str, command: str) -> None:
@@ -278,6 +341,10 @@ def main() -> None:
         scrubbed = without_heredoc_bodies(command)
         for name in command_names(scrubbed):
             stats["commands"][name] += 1
+        if requested_signatures:
+            for name, arguments in command_invocations(scrubbed):
+                if name in requested_signatures:
+                    stats["signatures"][name][option_signature(arguments)] += 1
         for syntax, pattern in SYNTAX_PATTERNS.items():
             if pattern.search(scrubbed):
                 stats["syntax"][syntax] += 1
@@ -304,6 +371,13 @@ def main() -> None:
             "tool_shapes": stats["shapes"].most_common(),
             "commands": stats["commands"].most_common(args.top),
             "syntax": stats["syntax"].most_common(),
+            "command_signatures": {
+                command: [
+                    {"options": list(signature), "count": count}
+                    for signature, count in stats["signatures"][command].most_common(args.top)
+                ]
+                for command in args.signature_command
+            },
         }
     print(json.dumps(output, indent=2))
 

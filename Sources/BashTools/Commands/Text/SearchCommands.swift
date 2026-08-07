@@ -49,6 +49,12 @@ struct GrepCommand: BuiltinCommand {
         @Flag(name: .customShort("H"), help: "Always print file name prefixes")
         var H = false
 
+        @Flag(name: .short, help: "Suppress file name prefixes")
+        var h = false
+
+        @Flag(name: .short, help: "Treat binary data as text")
+        var a = false
+
         @Option(name: .customShort("A"), help: "Print NUM lines after each selected line")
         var A: Int = 0
 
@@ -57,6 +63,9 @@ struct GrepCommand: BuiltinCommand {
 
         @Option(name: .customShort("C"), help: "Print NUM lines before and after each selected line")
         var C: Int?
+
+        @Option(name: .short, help: "Stop after NUM selected lines per file")
+        var m: Int?
 
         @Option(name: .long, help: "Search only files whose basename or path matches GLOB")
         var include: [String] = []
@@ -82,12 +91,27 @@ struct GrepCommand: BuiltinCommand {
     static let overview = "Print lines matching a pattern"
 
     static func run(context: inout CommandContext, options: Options) async -> Int32 {
+        if options.h, options.e.isEmpty, options.f.isEmpty, options.values.isEmpty {
+            context.writeStdout(
+                """
+                OVERVIEW: Print lines matching a pattern
+
+                USAGE: grep [options] pattern [file ...]
+
+                """
+            )
+            return 0
+        }
         if options.C != nil, options.A != 0 || options.B != 0 {
             context.writeStderr("grep: cannot combine -C with -A or -B\n")
             return 2
         }
         if options.A < 0 || options.B < 0 || (options.C ?? 0) < 0 {
             context.writeStderr("grep: context values must be >= 0\n")
+            return 2
+        }
+        if let maximum = options.m, maximum < 0 {
+            context.writeStderr("grep: max count must be >= 0\n")
             return 2
         }
         if options.l && options.L {
@@ -174,7 +198,7 @@ struct GrepCommand: BuiltinCommand {
             )
             selectedFound = selectedFound || selected
         } else {
-            let includeFilePrefix = options.H || searchTargets.count > 1
+            let includeFilePrefix = options.H || (searchTargets.count > 1 && !options.h)
             for target in searchTargets {
                 do {
                     let data = try await context.filesystem.readFile(path: target.path)
@@ -215,6 +239,17 @@ struct GrepCommand: BuiltinCommand {
         var matchRangesByIndex: [Int: [Range<String.Index>]] = [:]
         let printOnlyMatches = options.o && !options.v && !options.c && !options.l && !options.L
 
+        if options.m == 0 {
+            if options.c {
+                if includeFilePrefix {
+                    context.writeStdout("\(displayPath):0\n")
+                } else {
+                    context.writeStdout("0\n")
+                }
+            }
+            return false
+        }
+
         for (lineIndex, line) in lines.enumerated() {
             let matchRanges = matcher.matchRanges(in: line)
             let rawMatches = !matchRanges.isEmpty
@@ -227,6 +262,9 @@ struct GrepCommand: BuiltinCommand {
             if rawMatches {
                 rawMatchCount += 1
                 matchRangesByIndex[lineIndex] = matchRanges
+            }
+            if let maximum = options.m, selectedIndices.count >= maximum {
+                break
             }
         }
 

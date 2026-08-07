@@ -1574,6 +1574,23 @@ struct SessionIntegrationTests {
         let quietMiss = await session.run("grep -q absent Sources/App.swift")
         #expect(quietMiss.exitCode == 1)
         #expect(quietMiss.stdoutString.isEmpty)
+
+        let recursiveMatchesOnly = await session.run("grep -rhoE 'needle [a-z]+' Sources")
+        #expect(recursiveMatchesOnly.exitCode == 0)
+        #expect(recursiveMatchesOnly.stdoutString.contains("needle swift\n"))
+        #expect(!recursiveMatchesOnly.stdoutString.contains("/home/user/"))
+
+        let maximum = await session.run("grep -m 1 needle Sources/App.swift")
+        #expect(maximum.exitCode == 0)
+        #expect(maximum.stdoutString == "needle swift\n")
+
+        let binaryAsText = await session.run("grep -a needle Sources/App.swift")
+        #expect(binaryAsText.exitCode == 0)
+        #expect(binaryAsText.stdoutString.contains("needle swift\n"))
+
+        let zeroMaximum = await session.run("grep -cm 0 needle Sources/App.swift")
+        #expect(zeroMaximum.exitCode == 1)
+        #expect(zeroMaximum.stdoutString == "0\n")
     }
 
     @Test("gzip gunzip zcat zip unzip and tar commands")
