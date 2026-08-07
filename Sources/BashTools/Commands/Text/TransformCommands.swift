@@ -19,8 +19,20 @@ struct SortCommand: BuiltinCommand {
         @Flag(name: .short, help: "Check whether input is sorted")
         var c = false
 
+        @Flag(name: .customShort("V"), help: "Sort version numbers naturally")
+        var V = false
+
+        @Flag(name: .short, help: "Compare human-readable numbers")
+        var h = false
+
+        @Flag(name: .short, help: "Use NUL instead of newline as the record separator")
+        var z = false
+
         @Option(name: .short, help: "Sort via field key definition")
-        var k: String?
+        var k: [String] = []
+
+        @Option(name: .short, help: "Use SEP instead of whitespace for fields")
+        var t: String?
 
         @Option(name: .short, help: "Write result to FILE instead of standard output")
         var o: String?
@@ -32,23 +44,80 @@ struct SortCommand: BuiltinCommand {
     static let name = "sort"
     static let overview = "Sort lines of text"
 
+    static func _toAnyBuiltinCommand() -> AnyBuiltinCommand {
+        AnyBuiltinCommand(
+            name: name,
+            aliases: aliases,
+            overview: overview
+        ) { context, args in
+            do {
+                let options = try Options.parse(normalizeArguments(args))
+                return await run(context: &context, options: options)
+            } catch {
+                let message = Options.fullMessage(for: error)
+                if !message.isEmpty {
+                    let output = message.hasSuffix("\n") ? message : message + "\n"
+                    let exitCode = Options.exitCode(for: error).rawValue
+                    if exitCode == 0 {
+                        context.writeStdout(output)
+                    } else {
+                        context.writeStderr(output)
+                    }
+                }
+                return Options.exitCode(for: error).rawValue
+            }
+        }
+    }
+
     static func run(context: inout CommandContext, options: Options) async -> Int32 {
+        if options.h, options.files.isEmpty, context.stdin.isEmpty {
+            context.writeStdout(
+                """
+                OVERVIEW: Sort lines of text
+
+                USAGE: sort [OPTION]... [FILE]...
+
+                """
+            )
+            return 0
+        }
         if options.c, options.o != nil {
             context.writeStderr("sort: cannot combine -c and -o\n")
             return 2
         }
 
-        let inputs = await CommandFS.readInputs(paths: options.files, context: &context)
-        let lines = inputs.contents.flatMap { CommandIO.splitLines($0) }
+        let fieldSeparator: Character?
+        if let rawSeparator = options.t {
+            guard rawSeparator.count == 1, let separator = rawSeparator.first else {
+                context.writeStderr("sort: field separator must be a single character\n")
+                return 2
+            }
+            fieldSeparator = separator
+        } else {
+            fieldSeparator = nil
+        }
 
-        let keyField = parseKeyField(options.k)
+        let inputs = await readInputs(paths: options.files, context: &context)
+        let records = inputs.data.flatMap { splitRecords($0, nullSeparated: options.z) }
+
+        let keySpecifications = options.k.compactMap(parseKeySpecification)
+        if keySpecifications.count != options.k.count {
+            context.writeStderr("sort: invalid field specification\n")
+            return 2
+        }
         let comparator: (String, String) -> Int = { lhs, rhs in
-            compareLines(lhs: lhs, rhs: rhs, options: options, keyField: keyField)
+            compareLines(
+                lhs: lhs,
+                rhs: rhs,
+                options: options,
+                keySpecifications: keySpecifications,
+                fieldSeparator: fieldSeparator
+            )
         }
 
         if options.c {
-            for index in 1..<lines.count {
-                if comparator(lines[index - 1], lines[index]) > 0 {
+            for index in 1..<records.count {
+                if comparator(records[index - 1], records[index]) > 0 {
                     context.writeStderr("sort: input is not sorted\n")
                     return 1
                 }
@@ -56,7 +125,7 @@ struct SortCommand: BuiltinCommand {
             return inputs.hadError ? 1 : 0
         }
 
-        let sortedBase = lines.sorted { comparator($0, $1) < 0 }
+        let sortedBase = records.sorted { comparator($0, $1) < 0 }
         let sorted: [String]
         if options.r {
             sorted = Array(sortedBase.reversed())
@@ -78,7 +147,8 @@ struct SortCommand: BuiltinCommand {
             output = sorted
         }
 
-        let rendered = output.map { "\($0)\n" }.joined()
+        let separator = options.z ? "\0" : "\n"
+        let rendered = output.isEmpty ? "" : output.joined(separator: separator) + separator
         if let outputFile = options.o {
             do {
                 try await context.filesystem.writeFile(
@@ -96,48 +166,226 @@ struct SortCommand: BuiltinCommand {
         return inputs.hadError ? 1 : 0
     }
 
-    private static func parseKeyField(_ key: String?) -> Int? {
-        guard let key, !key.isEmpty else {
-            return nil
-        }
-
-        let fieldToken = key.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: true).first.map(String.init) ?? key
-        guard let value = Int(fieldToken), value > 0 else {
-            return nil
-        }
-        return value
+    private struct SortInputs {
+        var data: [Data]
+        var hadError: Bool
     }
 
-    private static func keyForSort(line: String, field: Int?) -> String {
-        guard let field else {
-            return line
-        }
-        let pieces = line.split(whereSeparator: \.isWhitespace).map(String.init)
-        guard field <= pieces.count else {
-            return ""
-        }
-        return pieces[field - 1]
+    private enum ComparisonMode {
+        case lexical
+        case numeric
+        case humanNumeric
+        case version
     }
 
-    private static func compareLines(lhs: String, rhs: String, options: Options, keyField: Int?) -> Int {
-        let lhsRawKey = keyForSort(line: lhs, field: keyField)
-        let rhsRawKey = keyForSort(line: rhs, field: keyField)
-        let lhsKey = options.f ? lhsRawKey.lowercased() : lhsRawKey
-        let rhsKey = options.f ? rhsRawKey.lowercased() : rhsRawKey
+    private struct KeySpecification {
+        var startField: Int
+        var endField: Int
+        var mode: ComparisonMode?
+    }
 
-        if options.n {
-            let leftValue = Double(lhsKey) ?? 0
-            let rightValue = Double(rhsKey) ?? 0
-            if leftValue < rightValue { return -1 }
-            if leftValue > rightValue { return 1 }
+    private static func readInputs(paths: [String], context: inout CommandContext) async -> SortInputs {
+        guard !paths.isEmpty else {
+            return SortInputs(data: [context.stdin], hadError: false)
+        }
+
+        var result = SortInputs(data: [], hadError: false)
+        for path in paths {
+            do {
+                result.data.append(try await context.filesystem.readFile(path: context.resolvePath(path)))
+            } catch {
+                context.writeStderr("sort: \(path): \(error)\n")
+                result.hadError = true
+            }
+        }
+        return result
+    }
+
+    private static func splitRecords(_ data: Data, nullSeparated: Bool) -> [String] {
+        if nullSeparated {
+            return data.split(separator: 0, omittingEmptySubsequences: true).map {
+                String(decoding: $0, as: UTF8.self)
+            }
+        }
+        return CommandIO.splitLines(CommandIO.decodeString(data))
+    }
+
+    private static func parseKeySpecification(_ key: String) -> KeySpecification? {
+        guard !key.isEmpty else { return nil }
+
+        let mode: ComparisonMode?
+        if key.contains("V") {
+            mode = .version
+        } else if key.contains("h") {
+            mode = .humanNumeric
+        } else if key.contains("n") {
+            mode = .numeric
         } else {
-            if lhsKey < rhsKey { return -1 }
-            if lhsKey > rhsKey { return 1 }
+            mode = nil
+        }
+
+        let numericPortion = key.prefix { $0.isNumber || $0 == "," || $0 == "." }
+        let pieces = numericPortion.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: true)
+        guard let first = pieces.first else { return nil }
+        let startToken = first.split(separator: ".", maxSplits: 1).first.map(String.init) ?? String(first)
+        guard let start = Int(startToken), start > 0 else { return nil }
+
+        let end: Int
+        if pieces.count == 2 {
+            let endToken = pieces[1].split(separator: ".", maxSplits: 1).first.map(String.init) ?? String(pieces[1])
+            guard let parsedEnd = Int(endToken), parsedEnd >= start else { return nil }
+            end = parsedEnd
+        } else {
+            end = start
+        }
+        return KeySpecification(startField: start, endField: end, mode: mode)
+    }
+
+    private static func keyForSort(
+        line: String,
+        specification: KeySpecification?,
+        fieldSeparator: Character?
+    ) -> String {
+        guard let specification else { return line }
+
+        let fields: [String]
+        if let fieldSeparator {
+            fields = line.split(separator: fieldSeparator, omittingEmptySubsequences: false).map(String.init)
+        } else {
+            fields = line.split(whereSeparator: \.isWhitespace).map(String.init)
+        }
+        guard specification.startField <= fields.count else { return "" }
+        let end = min(specification.endField, fields.count)
+        return fields[(specification.startField - 1)..<end].joined(separator: fieldSeparator.map(String.init) ?? " ")
+    }
+
+    private static func compareLines(
+        lhs: String,
+        rhs: String,
+        options: Options,
+        keySpecifications: [KeySpecification],
+        fieldSeparator: Character?
+    ) -> Int {
+        let specifications: [KeySpecification?] = keySpecifications.isEmpty ? [nil] : keySpecifications.map(Optional.some)
+        for specification in specifications {
+            let lhsRawKey = keyForSort(line: lhs, specification: specification, fieldSeparator: fieldSeparator)
+            let rhsRawKey = keyForSort(line: rhs, specification: specification, fieldSeparator: fieldSeparator)
+            let lhsKey = options.f ? lhsRawKey.lowercased() : lhsRawKey
+            let rhsKey = options.f ? rhsRawKey.lowercased() : rhsRawKey
+            let mode = specification?.mode ?? globalComparisonMode(options)
+            let comparison = compareKeys(lhsKey, rhsKey, mode: mode)
+            if comparison != 0 { return comparison }
         }
 
         if lhs < rhs { return -1 }
         if lhs > rhs { return 1 }
         return 0
+    }
+
+    private static func globalComparisonMode(_ options: Options) -> ComparisonMode {
+        if options.V { return .version }
+        if options.h { return .humanNumeric }
+        if options.n { return .numeric }
+        return .lexical
+    }
+
+    private static func compareKeys(_ lhs: String, _ rhs: String, mode: ComparisonMode) -> Int {
+        switch mode {
+        case .lexical:
+            return lhs == rhs ? 0 : (lhs < rhs ? -1 : 1)
+        case .numeric:
+            return compareNumbers(Double(lhs) ?? 0, Double(rhs) ?? 0)
+        case .humanNumeric:
+            return compareNumbers(humanReadableNumber(lhs), humanReadableNumber(rhs))
+        case .version:
+            return compareVersion(lhs, rhs)
+        }
+    }
+
+    private static func compareNumbers(_ lhs: Double, _ rhs: Double) -> Int {
+        if lhs < rhs { return -1 }
+        if lhs > rhs { return 1 }
+        return 0
+    }
+
+    private static func humanReadableNumber(_ value: String) -> Double {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let suffix = trimmed.last, suffix.isLetter else {
+            return Double(trimmed) ?? 0
+        }
+        let multiplier: Double
+        switch suffix.uppercased() {
+        case "K": multiplier = 1_024
+        case "M": multiplier = 1_024 * 1_024
+        case "G": multiplier = 1_024 * 1_024 * 1_024
+        case "T": multiplier = 1_024 * 1_024 * 1_024 * 1_024
+        case "P": multiplier = 1_024 * 1_024 * 1_024 * 1_024 * 1_024
+        case "E": multiplier = 1_024 * 1_024 * 1_024 * 1_024 * 1_024 * 1_024
+        default: multiplier = 1
+        }
+        return (Double(trimmed.dropLast()) ?? 0) * multiplier
+    }
+
+    private static func compareVersion(_ lhs: String, _ rhs: String) -> Int {
+        let left = versionComponents(lhs)
+        let right = versionComponents(rhs)
+        for index in 0..<max(left.count, right.count) {
+            guard index < left.count else { return -1 }
+            guard index < right.count else { return 1 }
+            let lhsPart = left[index]
+            let rhsPart = right[index]
+            if lhsPart.numeric, rhsPart.numeric {
+                let lhsNumber = lhsPart.value.drop(while: { $0 == "0" })
+                let rhsNumber = rhsPart.value.drop(while: { $0 == "0" })
+                if lhsNumber.count != rhsNumber.count { return lhsNumber.count < rhsNumber.count ? -1 : 1 }
+                if lhsNumber != rhsNumber { return lhsNumber.lexicographicallyPrecedes(rhsNumber) ? -1 : 1 }
+            } else if lhsPart.value != rhsPart.value {
+                return lhsPart.value < rhsPart.value ? -1 : 1
+            }
+        }
+        return 0
+    }
+
+    private static func versionComponents(_ value: String) -> [(value: String, numeric: Bool)] {
+        var components: [(String, Bool)] = []
+        for character in value {
+            let numeric = character.isNumber
+            if let last = components.indices.last, components[last].1 == numeric {
+                components[last].0.append(character)
+            } else {
+                components.append((String(character), numeric))
+            }
+        }
+        return components
+    }
+
+    private static func normalizeArguments(_ arguments: [String]) -> [String] {
+        var normalized: [String] = []
+        var passthrough = false
+        for argument in arguments {
+            if passthrough {
+                normalized.append(argument)
+                continue
+            }
+            if argument == "--" {
+                passthrough = true
+                normalized.append(argument)
+                continue
+            }
+            if argument.hasPrefix("-k"), argument.count > 2 {
+                normalized.append("-k")
+                normalized.append(String(argument.dropFirst(2)))
+            } else if argument.hasPrefix("-t"), argument.count > 2 {
+                normalized.append("-t")
+                normalized.append(String(argument.dropFirst(2)))
+            } else if argument.hasPrefix("-o"), argument.count > 2 {
+                normalized.append("-o")
+                normalized.append(String(argument.dropFirst(2)))
+            } else {
+                normalized.append(argument)
+            }
+        }
+        return normalized
     }
 }
 

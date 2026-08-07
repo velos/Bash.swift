@@ -2,6 +2,7 @@ import Foundation
 
 package enum RedirectionType: Sendable {
     case stdin
+    case stdinHereString
     case stdoutTruncate
     case stdoutAppend
     case stderrTruncate
@@ -150,6 +151,10 @@ package enum ShellParser {
                 index += 1
                 let target = try takeRedirectionTarget(tokens: tokens, index: &index)
                 redirections.append(Redirection(type: .stdin, target: target, hereDocument: nil))
+            case .redirHereString:
+                index += 1
+                let target = try takeRedirectionTarget(tokens: tokens, index: &index)
+                redirections.append(Redirection(type: .stdinHereString, target: target, hereDocument: nil))
             case let .redirHereDoc(hereDocument):
                 index += 1
                 redirections.append(Redirection(type: .stdin, target: nil, hereDocument: hereDocument))

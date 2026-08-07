@@ -40,6 +40,42 @@ struct GrepCommand: BuiltinCommand {
         @Flag(name: .short, help: "Recursively search files in directories")
         var r = false
 
+        @Flag(name: .customShort("R"), help: "Recursively search files in directories")
+        var R = false
+
+        @Flag(name: .short, help: "Suppress normal output; stop after a selected line")
+        var q = false
+
+        @Flag(name: .customShort("H"), help: "Always print file name prefixes")
+        var H = false
+
+        @Flag(name: .short, help: "Suppress file name prefixes")
+        var h = false
+
+        @Flag(name: .short, help: "Treat binary data as text")
+        var a = false
+
+        @Option(name: .customShort("A"), help: "Print NUM lines after each selected line")
+        var A: Int = 0
+
+        @Option(name: .customShort("B"), help: "Print NUM lines before each selected line")
+        var B: Int = 0
+
+        @Option(name: .customShort("C"), help: "Print NUM lines before and after each selected line")
+        var C: Int?
+
+        @Option(name: .short, help: "Stop after NUM selected lines per file")
+        var m: Int?
+
+        @Option(name: .long, help: "Search only files whose basename or path matches GLOB")
+        var include: [String] = []
+
+        @Option(name: .long, help: "Skip files whose basename or path matches GLOB")
+        var exclude: [String] = []
+
+        @Option(name: .customLong("exclude-dir"), help: "Skip directories matching GLOB")
+        var excludeDirectories: [String] = []
+
         @Option(name: .short, help: "Pattern to match")
         var e: [String] = []
 
@@ -55,6 +91,29 @@ struct GrepCommand: BuiltinCommand {
     static let overview = "Print lines matching a pattern"
 
     static func run(context: inout CommandContext, options: Options) async -> Int32 {
+        if options.h, options.e.isEmpty, options.f.isEmpty, options.values.isEmpty {
+            context.writeStdout(
+                """
+                OVERVIEW: Print lines matching a pattern
+
+                USAGE: grep [options] pattern [file ...]
+
+                """
+            )
+            return 0
+        }
+        if options.C != nil, options.A != 0 || options.B != 0 {
+            context.writeStderr("grep: cannot combine -C with -A or -B\n")
+            return 2
+        }
+        if options.A < 0 || options.B < 0 || (options.C ?? 0) < 0 {
+            context.writeStderr("grep: context values must be >= 0\n")
+            return 2
+        }
+        if let maximum = options.m, maximum < 0 {
+            context.writeStderr("grep: max count must be >= 0\n")
+            return 2
+        }
         if options.l && options.L {
             context.writeStderr("grep: cannot combine -l and -L\n")
             return 2
@@ -84,7 +143,8 @@ struct GrepCommand: BuiltinCommand {
         }
 
         let effectivePaths: [String]
-        if options.r && inputPaths.isEmpty {
+        let recursive = options.r || options.R
+        if recursive && inputPaths.isEmpty {
             effectivePaths = ["."]
         } else {
             effectivePaths = inputPaths
@@ -115,7 +175,14 @@ struct GrepCommand: BuiltinCommand {
         if effectivePaths.isEmpty {
             searchTargets = []
         } else {
-            let discovered = await collectGrepTargets(paths: effectivePaths, recursive: options.r, context: &context)
+            let discovered = await collectGrepTargets(
+                paths: effectivePaths,
+                recursive: recursive,
+                includeGlobs: options.include,
+                excludeGlobs: options.exclude,
+                excludeDirectoryGlobs: options.excludeDirectories,
+                context: &context
+            )
             searchTargets = discovered.targets
             hadError = discovered.hadError
         }
@@ -131,7 +198,7 @@ struct GrepCommand: BuiltinCommand {
             )
             selectedFound = selectedFound || selected
         } else {
-            let includeFilePrefix = searchTargets.count > 1
+            let includeFilePrefix = options.H || (searchTargets.count > 1 && !options.h)
             for target in searchTargets {
                 do {
                     let data = try await context.filesystem.readFile(path: target.path)
@@ -168,8 +235,20 @@ struct GrepCommand: BuiltinCommand {
     ) -> Bool {
         let lines = CommandIO.splitLines(content)
         var rawMatchCount = 0
-        var selectedLineCount = 0
+        var selectedIndices: [Int] = []
+        var matchRangesByIndex: [Int: [Range<String.Index>]] = [:]
         let printOnlyMatches = options.o && !options.v && !options.c && !options.l && !options.L
+
+        if options.m == 0 {
+            if options.c {
+                if includeFilePrefix {
+                    context.writeStdout("\(displayPath):0\n")
+                } else {
+                    context.writeStdout("0\n")
+                }
+            }
+            return false
+        }
 
         for (lineIndex, line) in lines.enumerated() {
             let matchRanges = matcher.matchRanges(in: line)
@@ -179,38 +258,20 @@ struct GrepCommand: BuiltinCommand {
                 continue
             }
 
-            selectedLineCount += 1
+            selectedIndices.append(lineIndex)
             if rawMatches {
                 rawMatchCount += 1
+                matchRangesByIndex[lineIndex] = matchRanges
             }
-
-            if printOnlyMatches {
-                for range in matchRanges {
-                    let prefix = grepPrefix(
-                        includeFilePrefix: includeFilePrefix,
-                        displayPath: displayPath,
-                        includeLineNumber: options.n,
-                        lineNumber: lineIndex + 1
-                    )
-                    context.writeStdout(prefix + line[range] + "\n")
-                }
-                continue
+            if let maximum = options.m, selectedIndices.count >= maximum {
+                break
             }
-
-            if options.c || options.l || options.L {
-                continue
-            }
-
-            let prefix = grepPrefix(
-                includeFilePrefix: includeFilePrefix,
-                displayPath: displayPath,
-                includeLineNumber: options.n,
-                lineNumber: lineIndex + 1
-            )
-            context.writeStdout(prefix + line + "\n")
         }
 
-        if options.c {
+        let selectedLineCount = selectedIndices.count
+        if options.q {
+            return selectedLineCount > 0
+        } else if options.c {
             if includeFilePrefix {
                 context.writeStdout("\(displayPath):\(selectedLineCount)\n")
             } else {
@@ -220,6 +281,40 @@ struct GrepCommand: BuiltinCommand {
             context.writeStdout("\(displayPath)\n")
         } else if options.L, rawMatchCount == 0 {
             context.writeStdout("\(displayPath)\n")
+        } else if printOnlyMatches {
+            for lineIndex in selectedIndices {
+                let line = lines[lineIndex]
+                for range in matchRangesByIndex[lineIndex] ?? [] {
+                    let prefix = grepPrefix(
+                        includeFilePrefix: includeFilePrefix,
+                        displayPath: displayPath,
+                        includeLineNumber: options.n,
+                        lineNumber: lineIndex + 1
+                    )
+                    context.writeStdout(prefix + line[range] + "\n")
+                }
+            }
+        } else if !options.l && !options.L {
+            let beforeContext = options.C ?? options.B
+            let afterContext = options.C ?? options.A
+            let outputIndices = grepContextIndices(
+                matches: selectedIndices,
+                lineCount: lines.count,
+                before: beforeContext,
+                after: afterContext
+            )
+            let selectedSet = Set(selectedIndices)
+            for lineIndex in outputIndices {
+                let isSelected = selectedSet.contains(lineIndex)
+                let prefix = grepPrefix(
+                    includeFilePrefix: includeFilePrefix,
+                    displayPath: displayPath,
+                    includeLineNumber: options.n,
+                    lineNumber: lineIndex + 1,
+                    separator: isSelected ? ":" : "-"
+                )
+                context.writeStdout(prefix + lines[lineIndex] + "\n")
+            }
         }
 
         if options.L {
@@ -232,21 +327,45 @@ struct GrepCommand: BuiltinCommand {
         includeFilePrefix: Bool,
         displayPath: String,
         includeLineNumber: Bool,
-        lineNumber: Int
+        lineNumber: Int,
+        separator: String = ":"
     ) -> String {
         var prefix = ""
         if includeFilePrefix {
-            prefix += "\(displayPath):"
+            prefix += "\(displayPath)\(separator)"
         }
         if includeLineNumber {
-            prefix += "\(lineNumber):"
+            prefix += "\(lineNumber)\(separator)"
         }
         return prefix
+    }
+
+    private static func grepContextIndices(
+        matches: [Int],
+        lineCount: Int,
+        before: Int,
+        after: Int
+    ) -> [Int] {
+        guard lineCount > 0 else {
+            return []
+        }
+        var included = Set<Int>()
+        for match in matches {
+            let start = max(0, match - before)
+            let end = min(lineCount - 1, match + after)
+            for index in start...end {
+                included.insert(index)
+            }
+        }
+        return included.sorted()
     }
 
     private static func collectGrepTargets(
         paths: [String],
         recursive: Bool,
+        includeGlobs: [String],
+        excludeGlobs: [String],
+        excludeDirectoryGlobs: [String],
         context: inout CommandContext
     ) async -> (targets: [SearchFileTarget], hadError: Bool) {
         var targets: [SearchFileTarget] = []
@@ -270,11 +389,24 @@ struct GrepCommand: BuiltinCommand {
                         guard !entryInfo.isDirectory else {
                             continue
                         }
+                        guard grepPathIsIncluded(
+                            entry,
+                            includeGlobs: includeGlobs,
+                            excludeGlobs: excludeGlobs,
+                            excludeDirectoryGlobs: excludeDirectoryGlobs
+                        ) else {
+                            continue
+                        }
                         if seen.insert(entry.string).inserted {
                             targets.append(SearchFileTarget(path: entry, displayPath: entry.string))
                         }
                     }
-                } else if seen.insert(resolved.string).inserted {
+                } else if grepPathIsIncluded(
+                    resolved,
+                    includeGlobs: includeGlobs,
+                    excludeGlobs: excludeGlobs,
+                    excludeDirectoryGlobs: excludeDirectoryGlobs
+                ), seen.insert(resolved.string).inserted {
                     targets.append(SearchFileTarget(path: resolved, displayPath: path))
                 }
             } catch {
@@ -284,6 +416,30 @@ struct GrepCommand: BuiltinCommand {
         }
 
         return (targets.sorted { $0.displayPath < $1.displayPath }, hadError)
+    }
+
+    private static func grepPathIsIncluded(
+        _ path: WorkspacePath,
+        includeGlobs: [String],
+        excludeGlobs: [String],
+        excludeDirectoryGlobs: [String]
+    ) -> Bool {
+        let fullPath = path.string
+        let basename = WorkspacePath.basename(fullPath)
+        let matches: (String) -> Bool = { pattern in
+            CommandFS.wildcardMatch(pattern: pattern, value: basename)
+                || CommandFS.wildcardMatch(pattern: pattern, value: fullPath)
+        }
+        if !includeGlobs.isEmpty, !includeGlobs.contains(where: matches) {
+            return false
+        }
+        if excludeGlobs.contains(where: matches) {
+            return false
+        }
+        let components = fullPath.split(separator: "/").map(String.init)
+        return !excludeDirectoryGlobs.contains { pattern in
+            components.contains { CommandFS.wildcardMatch(pattern: pattern, value: $0) }
+        }
     }
 }
 

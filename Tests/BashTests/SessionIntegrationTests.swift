@@ -14,6 +14,34 @@ actor PermissionProbe {
     }
 }
 
+private actor HostCommandProbe {
+    private var authorizationRequests: [HostCommandRequest] = []
+    private var executionRequests: [HostCommandRequest] = []
+
+    func authorize(_ request: HostCommandRequest) -> HostCommandAuthorization {
+        authorizationRequests.append(request)
+        return request.arguments == ["--version"]
+            ? .allow
+            : .deny(message: "only --version is allowed")
+    }
+
+    func execute(_ request: HostCommandRequest) -> CommandResult {
+        executionRequests.append(request)
+        let token = request.environment["TOKEN"] ?? "missing"
+        let input = String(decoding: request.stdin, as: UTF8.self)
+        let output = "\(request.commandName)|\(request.arguments.joined(separator: ","))|\(request.virtualCurrentDirectory)|\(token)|\(input)"
+        return CommandResult(stdout: Data(output.utf8), stderr: Data(), exitCode: 0)
+    }
+
+    func counts() -> (authorization: Int, execution: Int) {
+        (authorizationRequests.count, executionRequests.count)
+    }
+
+    func lastExecution() -> HostCommandRequest? {
+        executionRequests.last
+    }
+}
+
 @Suite("Session Integration")
 struct SessionIntegrationTests {
     @Test("touch then ls mutates read-write filesystem")
@@ -33,6 +61,54 @@ struct SessionIntegrationTests {
             .appendingPathComponent("file.txt")
             .path
         #expect(FileManager.default.fileExists(atPath: physicalPath))
+    }
+
+    @Test("host command adapters require authorization and explicit environment forwarding")
+    func hostCommandAdaptersRequireAuthorizationAndExplicitEnvironmentForwarding() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let unavailable = await session.run("swift --version")
+        #expect(unavailable.exitCode == 127)
+
+        let probe = HostCommandProbe()
+        try await session.registerHostCommand(
+            HostCommandDescriptor(
+                name: "host-swift",
+                aliases: ["swift"],
+                overview: "Run approved Swift operations",
+                forwardedEnvironmentKeys: ["TOKEN"]
+            ),
+            authorize: { request in
+                await probe.authorize(request)
+            },
+            execute: { request in
+                await probe.execute(request)
+            }
+        )
+
+        let allowed = await session.run(
+            "swift --version",
+            options: RunOptions(
+                stdin: Data("payload".utf8),
+                environment: ["TOKEN": "forwarded", "SECRET": "withheld"]
+            )
+        )
+        #expect(allowed.exitCode == 0)
+        #expect(allowed.stdoutString == "swift|--version|/home/user|forwarded|payload")
+
+        let execution = try #require(await probe.lastExecution())
+        #expect(execution.environment == ["TOKEN": "forwarded"])
+        #expect(execution.arguments == ["--version"])
+        #expect(execution.stdin == Data("payload".utf8))
+
+        let denied = await session.run("swift build")
+        #expect(denied.exitCode == 126)
+        #expect(denied.stderrString == "swift: host execution denied: only --version is allowed\n")
+
+        let counts = await probe.counts()
+        #expect(counts.authorization == 2)
+        #expect(counts.execution == 1)
     }
 
     @Test("pipe and output redirection")
@@ -922,14 +998,46 @@ struct SessionIntegrationTests {
         #expect(result.stdoutString == "via-redir\n")
     }
 
-    @Test("output process substitution remains unsupported")
-    func outputProcessSubstitutionRemainsUnsupported() async throws {
+    @Test("here strings expand into newline-terminated stdin")
+    func hereStringsExpandIntoStandardInput() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        _ = await session.run("VALUE='hello world'")
+
+        let variable = await session.run("cat <<< \"$VALUE\"")
+        #expect(variable.exitCode == 0)
+        #expect(variable.stdoutString == "hello world\n")
+
+        let command = await session.run("wc -l <<< \"$(printf 'one\\ntwo')\"")
+        #expect(command.exitCode == 0)
+        #expect(command.stdoutString == "2\n")
+
+        let noSplitting = await session.run("cat <<< $VALUE")
+        #expect(noSplitting.exitCode == 0)
+        #expect(noSplitting.stdoutString == "hello world\n")
+
+        let pipeline = await session.run("grep -q needle <<< 'haystack needle' && echo found")
+        #expect(pipeline.exitCode == 0)
+        #expect(pipeline.stdoutString == "found\n")
+    }
+
+    @Test("output process substitution buffers producer output")
+    func outputProcessSubstitutionBuffersProducerOutput() async throws {
         let (session, root) = try await TestSupport.makeSession()
         defer { TestSupport.removeDirectory(root) }
 
         let result = await session.run("echo hi > >(cat)")
-        #expect(result.exitCode == 2)
-        #expect(result.stderrString.contains("output process substitution"))
+        #expect(result.exitCode == 0)
+        #expect(result.stdoutString == "hi\n")
+
+        let tee = await session.run("printf 'one\\ntwo\\n' | tee >(grep two) >(tr a-z A-Z)")
+        #expect(tee.exitCode == 0)
+        #expect(tee.stdoutString == "one\ntwo\ntwo\nONE\nTWO\n")
+
+        let fileSink = await session.run("printf 'captured' > >(cat > captured.txt); cat captured.txt")
+        #expect(fileSink.exitCode == 0)
+        #expect(fileSink.stdoutString == "captured")
     }
 
     @Test("history formatting")
@@ -1060,6 +1168,22 @@ struct SessionIntegrationTests {
         let sortCheckBad = await session.run("sort -c unsorted.txt")
         #expect(sortCheckBad.exitCode == 1)
         #expect(sortCheckBad.stderrString.contains("not sorted"))
+
+        let sortVersions = await session.run("printf 'v1.10\\nv1.2\\nv1.9\\n' | sort -V")
+        #expect(sortVersions.exitCode == 0)
+        #expect(sortVersions.stdoutString == "v1.2\nv1.9\nv1.10\n")
+
+        let sortHumanNumbers = await session.run("printf '1K\\n900M\\n2G\\n' | sort -h")
+        #expect(sortHumanNumbers.exitCode == 0)
+        #expect(sortHumanNumbers.stdoutString == "1K\n900M\n2G\n")
+
+        let sortByDelimitedField = await session.run("printf 'b:2\\na:10\\nc:1\\n' | sort -t: -k2,2n")
+        #expect(sortByDelimitedField.exitCode == 0)
+        #expect(sortByDelimitedField.stdoutString == "c:1\nb:2\na:10\n")
+
+        let sortNullDelimited = await session.run("printf 'YgBhAA==' | base64 -d | sort -z | xxd -p")
+        #expect(sortNullDelimited.exitCode == 0)
+        #expect(sortNullDelimited.stdoutString == "61006200\n")
 
         let uniqIgnoreCase = await session.run("printf 'Foo\\nfoo\\nBar' | uniq -i -c")
         #expect(uniqIgnoreCase.exitCode == 0)
@@ -1334,6 +1458,49 @@ struct SessionIntegrationTests {
         #expect(signals.stdoutString.contains("TERM"))
     }
 
+    @Test("pgrep and pkill operate on emulated background processes")
+    func pgrepAndPkillOperateOnEmulatedBackgroundProcesses() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        // Keep the fixtures alive well beyond a loaded parallel test run. The
+        // test cancels and reaps both jobs below, so these durations do not
+        // increase its runtime.
+        _ = await session.run("sleep 300 &")
+        _ = await session.run("timeout 300 sleep 240 &")
+
+        let byName = await session.run("pgrep -l '^sleep$'")
+        #expect(byName.exitCode == 0)
+        #expect(byName.stdoutString.contains("sleep"))
+        #expect(byName.stdoutString.split(separator: "\n").count == 1)
+
+        let byFullCommand = await session.run("pgrep -fa 'sleep 240'")
+        #expect(byFullCommand.exitCode == 0)
+        #expect(byFullCommand.stdoutString.contains("timeout 300 sleep 240"))
+
+        let count = await session.run("pgrep -fc sleep")
+        #expect(count.exitCode == 0)
+        #expect(count.stdoutString == "2\n")
+
+        let noHostVisibility = await session.run("pgrep Finder")
+        #expect(noHostVisibility.exitCode == 1)
+        #expect(noHostVisibility.stdoutString.isEmpty)
+
+        let terminated = await session.run("pkill -f 'sleep 240'")
+        #expect(terminated.exitCode == 0)
+
+        let remaining = await session.run("pgrep -fa sleep")
+        #expect(remaining.exitCode == 0)
+        #expect(remaining.stdoutString.contains("sleep 300"))
+        #expect(!remaining.stdoutString.contains("sleep 240"))
+
+        let terminateLast = await session.run("pkill -KILL -x sleep")
+        #expect(terminateLast.exitCode == 0)
+        let noRemaining = await session.run("pgrep -f sleep")
+        #expect(noRemaining.exitCode == 1)
+        _ = await session.run("wait")
+    }
+
     @Test("diff command shows differences and status")
     func diffCommandShowsDifferencesAndStatus() async throws {
         let (session, root) = try await TestSupport.makeSession()
@@ -1467,6 +1634,67 @@ struct SessionIntegrationTests {
         #expect(rgTypeExclude.exitCode == 0)
         #expect(!rgTypeExclude.stdoutString.contains("/home/user/corpus/code.swift:"))
         #expect(rgTypeExclude.stdoutString.contains("/home/user/corpus/a.txt:hello"))
+    }
+
+    @Test("grep supports model-generated recursive filters, context, and quiet checks")
+    func grepSupportsModelGeneratedReconnaissanceForms() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        _ = await session.run("mkdir -p Sources/Nested vendor")
+        _ = await session.run("printf 'before\\nneedle swift\\nafter one\\nafter two\\n' > Sources/App.swift")
+        _ = await session.run("printf 'needle typescript\\n' > Sources/Nested/App.ts")
+        _ = await session.run("printf 'needle markdown\\n' > Sources/Notes.md")
+        _ = await session.run("printf 'needle vendored\\n' > vendor/Vendor.swift")
+
+        // Claude commonly combines recursive/line-number flags with one or
+        // more --include filters while inspecting a repository.
+        let included = await session.run(
+            "grep -rn needle Sources --include='*.swift' --include='*.ts'"
+        )
+        #expect(included.exitCode == 0)
+        #expect(included.stdoutString.contains("/home/user/Sources/App.swift:2:needle swift"))
+        #expect(included.stdoutString.contains("/home/user/Sources/Nested/App.ts:1:needle typescript"))
+        #expect(!included.stdoutString.contains("Notes.md"))
+
+        let excluded = await session.run(
+            "grep -R needle . --exclude-dir=vendor --exclude='*.md'"
+        )
+        #expect(excluded.exitCode == 0)
+        #expect(excluded.stdoutString.contains("needle swift"))
+        #expect(!excluded.stdoutString.contains("needle vendored"))
+        #expect(!excluded.stdoutString.contains("needle markdown"))
+
+        // `grep -n PATTERN -B N -A N file` is another frequent transcript
+        // shape, including options placed after the pattern.
+        let context = await session.run("grep -n needle -B 1 -A 2 Sources/App.swift")
+        #expect(context.exitCode == 0)
+        #expect(context.stdoutString == "1-before\n2:needle swift\n3-after one\n4-after two\n")
+
+        let quietMatch = await session.run("grep -q needle Sources/App.swift")
+        #expect(quietMatch.exitCode == 0)
+        #expect(quietMatch.stdoutString.isEmpty)
+
+        let quietMiss = await session.run("grep -q absent Sources/App.swift")
+        #expect(quietMiss.exitCode == 1)
+        #expect(quietMiss.stdoutString.isEmpty)
+
+        let recursiveMatchesOnly = await session.run("grep -rhoE 'needle [a-z]+' Sources")
+        #expect(recursiveMatchesOnly.exitCode == 0)
+        #expect(recursiveMatchesOnly.stdoutString.contains("needle swift\n"))
+        #expect(!recursiveMatchesOnly.stdoutString.contains("/home/user/"))
+
+        let maximum = await session.run("grep -m 1 needle Sources/App.swift")
+        #expect(maximum.exitCode == 0)
+        #expect(maximum.stdoutString == "needle swift\n")
+
+        let binaryAsText = await session.run("grep -a needle Sources/App.swift")
+        #expect(binaryAsText.exitCode == 0)
+        #expect(binaryAsText.stdoutString.contains("needle swift\n"))
+
+        let zeroMaximum = await session.run("grep -cm 0 needle Sources/App.swift")
+        #expect(zeroMaximum.exitCode == 1)
+        #expect(zeroMaximum.stdoutString == "0\n")
     }
 
     @Test("gzip gunzip zcat zip unzip and tar commands")
@@ -1791,6 +2019,62 @@ struct SessionIntegrationTests {
 
         let yqExit = await session.run("yq -e -n 'null'")
         #expect(yqExit.exitCode == 1)
+    }
+
+    @Test("jq supports transcript argument bindings and object construction")
+    func jqArgumentBindingsAndObjectConstruction() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let stringBinding = await session.run("jq -nc --arg name 'Bash.swift' '{name: $name}'")
+        #expect(stringBinding.exitCode == 0)
+        #expect(stringBinding.stdoutString == "{\"name\":\"Bash.swift\"}\n")
+
+        let jsonBinding = await session.run("jq -nc --argjson count 3 '{count: $count}'")
+        #expect(jsonBinding.exitCode == 0)
+        #expect(jsonBinding.stdoutString == "{\"count\":3}\n")
+
+        let selected = await session.run(
+            "printf '{\"items\":[{\"id\":\"a\"},{\"id\":\"b\"}]}' | jq -c --arg id b '.items[] | select(.id == $id)'"
+        )
+        #expect(selected.exitCode == 0)
+        #expect(selected.stdoutString == "{\"id\":\"b\"}\n")
+
+        _ = await session.run("printf '{\"id\":1}' > left.json")
+        _ = await session.run("printf '{\"id\":2}\\n{\"id\":3}\\n' > right.json")
+        let slurped = await session.run(
+            "jq -ncS --slurpfile left left.json --slurpfile right right.json '{left: $left, right: $right}'"
+        )
+        #expect(slurped.exitCode == 0)
+        #expect(slurped.stdoutString == "{\"left\":[{\"id\":1}],\"right\":[{\"id\":2},{\"id\":3}]}\n")
+
+        let invalid = await session.run("jq -n --argjson value nope '$value'")
+        #expect(invalid.exitCode == 2)
+        #expect(invalid.stderrString.contains("--argjson value"))
+    }
+
+    @Test("jq supports transcript-common collection filters")
+    func jqTranscriptCommonCollectionFilters() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let keys = await session.run("printf '{\"b\":2,\"a\":1}' | jq -c 'keys'")
+        #expect(keys.exitCode == 0)
+        #expect(keys.stdoutString == "[\"a\",\"b\"]\n")
+
+        let names = await session.run(
+            "printf '{\"items\":[{\"name\":\"swift\"},{\"name\":\"bash\"}]}' | jq -r '.items | map(.name) | join(\",\")'"
+        )
+        #expect(names.exitCode == 0)
+        #expect(names.stdoutString == "swift,bash\n")
+
+        let length = await session.run("printf '[1,2,3]' | jq 'length'")
+        #expect(length.exitCode == 0)
+        #expect(length.stdoutString == "3\n")
+
+        let string = await session.run("jq -nr --argjson value 42 '$value | tostring'")
+        #expect(string.exitCode == 0)
+        #expect(string.stdoutString == "42\n")
     }
 
     @Test("curl command basic data and file usage")

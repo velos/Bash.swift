@@ -9,8 +9,8 @@ struct StructuredQueryProgram {
         return StructuredQueryProgram(expression: try parser.parse())
     }
 
-    func evaluate(input: Any) throws -> [Any] {
-        try StructuredQueryEvaluator.evaluate(expression, input: input)
+    func evaluate(input: Any, variables: [String: Any] = [:]) throws -> [Any] {
+        try StructuredQueryEvaluator.evaluate(expression, input: input, variables: variables)
     }
 }
 
@@ -46,12 +46,23 @@ enum StructuredQueryRenderer {
 private indirect enum StructuredQueryExpression {
     case identity
     case literal(Any)
+    case variable(String)
+    case object([(String, StructuredQueryExpression)])
+    case function(StructuredQueryFunction, StructuredQueryExpression?)
     case path(base: StructuredQueryExpression, operations: [PathOperation])
     case pipe(StructuredQueryExpression, StructuredQueryExpression)
     case binary(BinaryOperator, StructuredQueryExpression, StructuredQueryExpression)
     case unary(UnaryOperator, StructuredQueryExpression)
     case select(StructuredQueryExpression)
     case collect(StructuredQueryExpression)
+}
+
+private enum StructuredQueryFunction {
+    case length
+    case keys
+    case map
+    case join
+    case tostring
 }
 
 private enum PathOperation {
@@ -78,6 +89,7 @@ private enum UnaryOperator {
 
 private enum StructuredQueryToken: Equatable {
     case dot
+    case dollar
     case identifier(String)
     case string(String)
     case number(Double)
@@ -85,6 +97,9 @@ private enum StructuredQueryToken: Equatable {
     case rightParen
     case leftBracket
     case rightBracket
+    case leftBrace
+    case rightBrace
+    case colon
     case comma
     case pipe
     case equalEqual
@@ -122,6 +137,10 @@ private struct StructuredQueryLexer {
                 advance()
                 tokens.append(.dot)
 
+            case "$":
+                advance()
+                tokens.append(.dollar)
+
             case "(":
                 advance()
                 tokens.append(.leftParen)
@@ -137,6 +156,18 @@ private struct StructuredQueryLexer {
             case "]":
                 advance()
                 tokens.append(.rightBracket)
+
+            case "{":
+                advance()
+                tokens.append(.leftBrace)
+
+            case "}":
+                advance()
+                tokens.append(.rightBrace)
+
+            case ":":
+                advance()
+                tokens.append(.colon)
 
             case ",":
                 advance()
@@ -400,6 +431,18 @@ private struct StructuredQueryParser {
             _ = advance()
             return .literal(string)
 
+        case .dollar:
+            _ = advance()
+            guard case .identifier(let name) = current else {
+                throw ShellError.unsupported("invalid variable reference")
+            }
+            _ = advance()
+            return .variable(name)
+
+        case .leftBrace:
+            _ = advance()
+            return try parseObject()
+
         case .identifier(let name):
             _ = advance()
             if name == "true" {
@@ -416,6 +459,24 @@ private struct StructuredQueryParser {
                 let condition = try parseExpression(minimumPrecedence: 0)
                 try expect(.rightParen)
                 return .select(condition)
+            }
+            if name == "length" {
+                consumeEmptyCallIfPresent()
+                return .function(.length, nil)
+            }
+            if name == "keys" {
+                consumeEmptyCallIfPresent()
+                return .function(.keys, nil)
+            }
+            if name == "tostring" {
+                consumeEmptyCallIfPresent()
+                return .function(.tostring, nil)
+            }
+            if name == "map" || name == "join" {
+                try expect(.leftParen)
+                let argument = try parseExpression(minimumPrecedence: 0)
+                try expect(.rightParen)
+                return .function(name == "map" ? .map : .join, argument)
             }
             throw ShellError.unsupported("unsupported identifier: \(name)")
 
@@ -441,6 +502,38 @@ private struct StructuredQueryParser {
 
         default:
             throw ShellError.unsupported("invalid query expression")
+        }
+    }
+
+    private mutating func consumeEmptyCallIfPresent() {
+        guard consume(.leftParen) else {
+            return
+        }
+        _ = consume(.rightParen)
+    }
+
+    private mutating func parseObject() throws -> StructuredQueryExpression {
+        if consume(.rightBrace) {
+            return .object([])
+        }
+
+        var members: [(String, StructuredQueryExpression)] = []
+        while true {
+            let key: String
+            switch current {
+            case .identifier(let name), .string(let name):
+                key = name
+                _ = advance()
+            default:
+                throw ShellError.unsupported("object keys must be identifiers or strings")
+            }
+            try expect(.colon)
+            members.append((key, try parseExpression(minimumPrecedence: 11)))
+
+            if consume(.rightBrace) {
+                return .object(members)
+            }
+            try expect(.comma)
         }
     }
 
@@ -590,7 +683,11 @@ private struct StructuredQueryParser {
 }
 
 private enum StructuredQueryEvaluator {
-    static func evaluate(_ expression: StructuredQueryExpression, input: Any) throws -> [Any] {
+    static func evaluate(
+        _ expression: StructuredQueryExpression,
+        input: Any,
+        variables: [String: Any]
+    ) throws -> [Any] {
         switch expression {
         case .identity:
             return [input]
@@ -598,11 +695,32 @@ private enum StructuredQueryEvaluator {
         case .literal(let value):
             return [value]
 
+        case .variable(let name):
+            guard let value = variables[name] else {
+                throw ShellError.unsupported("undefined variable: $\(name)")
+            }
+            return [value]
+
+        case .object(let members):
+            var object: [String: Any] = [:]
+            for (key, valueExpression) in members {
+                object[key] = firstValue(from: try evaluate(valueExpression, input: input, variables: variables))
+            }
+            return [object]
+
+        case .function(let function, let argument):
+            return try evaluateFunction(
+                function,
+                argument: argument,
+                input: input,
+                variables: variables
+            )
+
         case .collect(let child):
-            return [try evaluate(child, input: input)]
+            return [try evaluate(child, input: input, variables: variables)]
 
         case .path(let base, let operations):
-            var values = try evaluate(base, input: input)
+            var values = try evaluate(base, input: input, variables: variables)
             for operation in operations {
                 values = applyPathOperation(operation, to: values)
             }
@@ -610,26 +728,95 @@ private enum StructuredQueryEvaluator {
 
         case .pipe(let lhs, let rhs):
             var output: [Any] = []
-            for value in try evaluate(lhs, input: input) {
-                output.append(contentsOf: try evaluate(rhs, input: value))
+            for value in try evaluate(lhs, input: input, variables: variables) {
+                output.append(contentsOf: try evaluate(rhs, input: value, variables: variables))
             }
             return output
 
         case .unary(let operation, let operand):
             switch operation {
             case .not:
-                return [!isTruthy(firstValue(from: try evaluate(operand, input: input)))]
+                return [!isTruthy(firstValue(from: try evaluate(operand, input: input, variables: variables)))]
             }
 
         case .select(let predicate):
-            let predicateValues = try evaluate(predicate, input: input)
+            let predicateValues = try evaluate(predicate, input: input, variables: variables)
             if predicateValues.contains(where: isTruthy) {
                 return [input]
             }
             return []
 
         case .binary(let operation, let lhs, let rhs):
-            return [try evaluateBinary(operation, lhs: lhs, rhs: rhs, input: input)]
+            return [try evaluateBinary(operation, lhs: lhs, rhs: rhs, input: input, variables: variables)]
+        }
+    }
+
+    private static func evaluateFunction(
+        _ function: StructuredQueryFunction,
+        argument: StructuredQueryExpression?,
+        input: Any,
+        variables: [String: Any]
+    ) throws -> [Any] {
+        switch function {
+        case .length:
+            if isNullLike(input) { return [0] }
+            if let string = input as? String { return [string.count] }
+            if let array = input as? [Any] { return [array.count] }
+            if let object = input as? [String: Any] { return [object.count] }
+            if let number = asDouble(input) { return [abs(number)] }
+            throw ShellError.unsupported("length cannot be applied to this value")
+
+        case .keys:
+            if let array = input as? [Any] {
+                return [Array(array.indices)]
+            }
+            if let object = input as? [String: Any] {
+                return [object.keys.sorted()]
+            }
+            throw ShellError.unsupported("keys requires an array or object")
+
+        case .map:
+            guard let argument, let array = input as? [Any] else {
+                throw ShellError.unsupported("map requires an array")
+            }
+            var mapped: [Any] = []
+            for value in array {
+                mapped.append(contentsOf: try evaluate(argument, input: value, variables: variables))
+            }
+            return [mapped]
+
+        case .join:
+            guard let argument,
+                  let separator = firstValue(from: try evaluate(argument, input: input, variables: variables)) as? String,
+                  let array = input as? [Any]
+            else {
+                throw ShellError.unsupported("join requires an array and string separator")
+            }
+            return [try array.map(stringForJoin).joined(separator: separator)]
+
+        case .tostring:
+            if let string = input as? String {
+                return [string]
+            }
+            return [try renderCompact(input)]
+        }
+    }
+
+    private static func stringForJoin(_ value: Any) throws -> String {
+        if isNullLike(value) { return "" }
+        if let string = value as? String { return string }
+        if value is Bool || asDouble(value) != nil {
+            return try renderCompact(value)
+        }
+        throw ShellError.unsupported("join cannot stringify arrays or objects")
+    }
+
+    private static func renderCompact(_ value: Any) throws -> String {
+        do {
+            let data = try JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .sortedKeys])
+            return String(decoding: data, as: UTF8.self)
+        } catch {
+            throw ShellError.unsupported("unable to convert value to string")
         }
     }
 
@@ -674,35 +861,36 @@ private enum StructuredQueryEvaluator {
         _ operation: BinaryOperator,
         lhs: StructuredQueryExpression,
         rhs: StructuredQueryExpression,
-        input: Any
+        input: Any,
+        variables: [String: Any]
     ) throws -> Any {
         switch operation {
         case .and:
-            let leftValue = firstValue(from: try evaluate(lhs, input: input))
+            let leftValue = firstValue(from: try evaluate(lhs, input: input, variables: variables))
             if !isTruthy(leftValue) {
                 return false
             }
-            let rightValue = firstValue(from: try evaluate(rhs, input: input))
+            let rightValue = firstValue(from: try evaluate(rhs, input: input, variables: variables))
             return isTruthy(rightValue)
 
         case .or:
-            let leftValue = firstValue(from: try evaluate(lhs, input: input))
+            let leftValue = firstValue(from: try evaluate(lhs, input: input, variables: variables))
             if isTruthy(leftValue) {
                 return true
             }
-            let rightValue = firstValue(from: try evaluate(rhs, input: input))
+            let rightValue = firstValue(from: try evaluate(rhs, input: input, variables: variables))
             return isTruthy(rightValue)
 
         case .coalesce:
-            let leftValues = try evaluate(lhs, input: input)
+            let leftValues = try evaluate(lhs, input: input, variables: variables)
             if let firstNonNull = leftValues.first(where: { !isNullLike($0) }) {
                 return firstNonNull
             }
-            return firstValue(from: try evaluate(rhs, input: input))
+            return firstValue(from: try evaluate(rhs, input: input, variables: variables))
 
         case .equal, .notEqual, .lessThan, .lessThanOrEqual, .greaterThan, .greaterThanOrEqual:
-            let leftValue = firstValue(from: try evaluate(lhs, input: input))
-            let rightValue = firstValue(from: try evaluate(rhs, input: input))
+            let leftValue = firstValue(from: try evaluate(lhs, input: input, variables: variables))
+            let rightValue = firstValue(from: try evaluate(rhs, input: input, variables: variables))
             return compare(leftValue, rightValue, operation: operation)
         }
     }

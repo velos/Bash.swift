@@ -1032,7 +1032,7 @@ struct FindCommand: BuiltinCommand {
             )
         case let .path(pattern, ignoreCase):
             return FindEvalResult(
-                matches: wildcardMatches(pattern: pattern, value: path.string, ignoreCase: ignoreCase),
+                matches: findPathWildcardMatches(pattern: pattern, value: path.string, ignoreCase: ignoreCase),
                 shouldPrune: false
             )
         case let .regex(pattern, ignoreCase):
@@ -1251,6 +1251,28 @@ struct FindCommand: BuiltinCommand {
         }
 
         return CommandFS.wildcardMatch(pattern: pattern, value: value)
+    }
+
+    /// `find -path` matches against the whole path, where `*` and `?` may
+    /// consume `/`. That differs from shell pathname expansion, whose `*`
+    /// stays within one path component.
+    private static func findPathWildcardMatches(
+        pattern: String,
+        value: String,
+        ignoreCase: Bool
+    ) -> Bool {
+        var regexPattern = NSRegularExpression.escapedPattern(for: pattern)
+        regexPattern = regexPattern.replacingOccurrences(of: "\\*", with: ".*")
+        regexPattern = regexPattern.replacingOccurrences(of: "\\?", with: ".")
+        let options: NSRegularExpression.Options = ignoreCase ? [.caseInsensitive] : []
+        guard let regex = try? NSRegularExpression(
+            pattern: "^\(regexPattern)$",
+            options: options
+        ) else {
+            return false
+        }
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        return regex.firstMatch(in: value, range: range) != nil
     }
 
     private static func regexMatches(pattern: String, value: String, ignoreCase: Bool) -> Bool {
