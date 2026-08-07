@@ -2049,6 +2049,30 @@ struct SessionIntegrationTests {
         #expect(invalid.stderrString.contains("--argjson value"))
     }
 
+    @Test("jq supports transcript-common collection filters")
+    func jqTranscriptCommonCollectionFilters() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        let keys = await session.run("printf '{\"b\":2,\"a\":1}' | jq -c 'keys'")
+        #expect(keys.exitCode == 0)
+        #expect(keys.stdoutString == "[\"a\",\"b\"]\n")
+
+        let names = await session.run(
+            "printf '{\"items\":[{\"name\":\"swift\"},{\"name\":\"bash\"}]}' | jq -r '.items | map(.name) | join(\",\")'"
+        )
+        #expect(names.exitCode == 0)
+        #expect(names.stdoutString == "swift,bash\n")
+
+        let length = await session.run("printf '[1,2,3]' | jq 'length'")
+        #expect(length.exitCode == 0)
+        #expect(length.stdoutString == "3\n")
+
+        let string = await session.run("jq -nr --argjson value 42 '$value | tostring'")
+        #expect(string.exitCode == 0)
+        #expect(string.stdoutString == "42\n")
+    }
+
     @Test("curl command basic data and file usage")
     func curlCommandBasicDataAndFileUsage() async throws {
         let (session, root) = try await TestSupport.makeSession(networkPolicy: .unrestricted)

@@ -48,12 +48,21 @@ private indirect enum StructuredQueryExpression {
     case literal(Any)
     case variable(String)
     case object([(String, StructuredQueryExpression)])
+    case function(StructuredQueryFunction, StructuredQueryExpression?)
     case path(base: StructuredQueryExpression, operations: [PathOperation])
     case pipe(StructuredQueryExpression, StructuredQueryExpression)
     case binary(BinaryOperator, StructuredQueryExpression, StructuredQueryExpression)
     case unary(UnaryOperator, StructuredQueryExpression)
     case select(StructuredQueryExpression)
     case collect(StructuredQueryExpression)
+}
+
+private enum StructuredQueryFunction {
+    case length
+    case keys
+    case map
+    case join
+    case tostring
 }
 
 private enum PathOperation {
@@ -451,6 +460,24 @@ private struct StructuredQueryParser {
                 try expect(.rightParen)
                 return .select(condition)
             }
+            if name == "length" {
+                consumeEmptyCallIfPresent()
+                return .function(.length, nil)
+            }
+            if name == "keys" {
+                consumeEmptyCallIfPresent()
+                return .function(.keys, nil)
+            }
+            if name == "tostring" {
+                consumeEmptyCallIfPresent()
+                return .function(.tostring, nil)
+            }
+            if name == "map" || name == "join" {
+                try expect(.leftParen)
+                let argument = try parseExpression(minimumPrecedence: 0)
+                try expect(.rightParen)
+                return .function(name == "map" ? .map : .join, argument)
+            }
             throw ShellError.unsupported("unsupported identifier: \(name)")
 
         case .keywordNot:
@@ -476,6 +503,13 @@ private struct StructuredQueryParser {
         default:
             throw ShellError.unsupported("invalid query expression")
         }
+    }
+
+    private mutating func consumeEmptyCallIfPresent() {
+        guard consume(.leftParen) else {
+            return
+        }
+        _ = consume(.rightParen)
     }
 
     private mutating func parseObject() throws -> StructuredQueryExpression {
@@ -674,6 +708,14 @@ private enum StructuredQueryEvaluator {
             }
             return [object]
 
+        case .function(let function, let argument):
+            return try evaluateFunction(
+                function,
+                argument: argument,
+                input: input,
+                variables: variables
+            )
+
         case .collect(let child):
             return [try evaluate(child, input: input, variables: variables)]
 
@@ -706,6 +748,75 @@ private enum StructuredQueryEvaluator {
 
         case .binary(let operation, let lhs, let rhs):
             return [try evaluateBinary(operation, lhs: lhs, rhs: rhs, input: input, variables: variables)]
+        }
+    }
+
+    private static func evaluateFunction(
+        _ function: StructuredQueryFunction,
+        argument: StructuredQueryExpression?,
+        input: Any,
+        variables: [String: Any]
+    ) throws -> [Any] {
+        switch function {
+        case .length:
+            if isNullLike(input) { return [0] }
+            if let string = input as? String { return [string.count] }
+            if let array = input as? [Any] { return [array.count] }
+            if let object = input as? [String: Any] { return [object.count] }
+            if let number = asDouble(input) { return [abs(number)] }
+            throw ShellError.unsupported("length cannot be applied to this value")
+
+        case .keys:
+            if let array = input as? [Any] {
+                return [Array(array.indices)]
+            }
+            if let object = input as? [String: Any] {
+                return [object.keys.sorted()]
+            }
+            throw ShellError.unsupported("keys requires an array or object")
+
+        case .map:
+            guard let argument, let array = input as? [Any] else {
+                throw ShellError.unsupported("map requires an array")
+            }
+            var mapped: [Any] = []
+            for value in array {
+                mapped.append(contentsOf: try evaluate(argument, input: value, variables: variables))
+            }
+            return [mapped]
+
+        case .join:
+            guard let argument,
+                  let separator = firstValue(from: try evaluate(argument, input: input, variables: variables)) as? String,
+                  let array = input as? [Any]
+            else {
+                throw ShellError.unsupported("join requires an array and string separator")
+            }
+            return [try array.map(stringForJoin).joined(separator: separator)]
+
+        case .tostring:
+            if let string = input as? String {
+                return [string]
+            }
+            return [try renderCompact(input)]
+        }
+    }
+
+    private static func stringForJoin(_ value: Any) throws -> String {
+        if isNullLike(value) { return "" }
+        if let string = value as? String { return string }
+        if value is Bool || asDouble(value) != nil {
+            return try renderCompact(value)
+        }
+        throw ShellError.unsupported("join cannot stringify arrays or objects")
+    }
+
+    private static func renderCompact(_ value: Any) throws -> String {
+        do {
+            let data = try JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .sortedKeys])
+            return String(decoding: data, as: UTF8.self)
+        } catch {
+            throw ShellError.unsupported("unable to convert value to string")
         }
     }
 
