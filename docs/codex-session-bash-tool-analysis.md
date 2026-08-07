@@ -145,7 +145,7 @@ The transcript scenario exposed that `find -path` reused shell pathname globbing
 ## Prioritized Remaining Work
 
 1. Done: add here-string (`<<<`) parsing and tests. It appeared in 272 OpenAI calls; the implementation expands its single word without field splitting and appends the shell-required newline.
-2. Evaluate in-process `pgrep`/`pkill`/`lsof`-style introspection only against Bash.swift's pseudo-job model. Observed usage (`pgrep`: OpenAI 222, Anthropic 80; `lsof`: OpenAI 165, Anthropic 12) often targets host processes that an in-process shell cannot truthfully expose.
+2. Done within the truthful boundary: `pgrep` and `pkill` now inspect and signal only pseudo-processes launched as background jobs by the current `BashSession`. `lsof` remains intentionally unsupported because the pseudo-job runtime does not track per-job file descriptors or sockets. Observed host-oriented calls still require an explicit host adapter.
 3. Extend `grep` only from concrete signatures. Remaining likely candidates include long options, binary-file behavior, and full GNU context-group separators; avoid broad GNU parity without transcript evidence.
 4. Keep external runtimes/build tools out of core. If applications need `swift`, `bun`, `pnpm`, `node`, `gh`, or Xcode commands, design an explicit permissioned host-command adapter rather than weakening the jailed default.
 5. Re-run the extractor periodically and retain provider/model splits. A single combined ranking would hide the important `rg` versus `grep` and redirection-style differences between OpenAI and Anthropic models.

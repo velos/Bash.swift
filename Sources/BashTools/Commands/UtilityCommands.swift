@@ -678,6 +678,72 @@ struct PsCommand: BuiltinCommand {
     }
 }
 
+struct PgrepCommand: BuiltinCommand {
+    struct Options: ParsableArguments {
+        @Argument(parsing: .captureForPassthrough, help: "Options and a process-name pattern")
+        var args: [String] = []
+    }
+
+    static let name = "pgrep"
+    static let overview = "Search emulated background processes"
+
+    static func run(context: inout CommandContext, options: Options) async -> Int32 {
+        if options.args == ["--help"] || options.args == ["-h"] {
+            context.writeStdout(
+                """
+                OVERVIEW: Search emulated background processes
+
+                USAGE: pgrep [-f] [-l|-a] [-x] [-n|-o] [-c] pattern
+
+                Only background jobs launched by this BashSession are visible.
+
+                """
+            )
+            return 0
+        }
+
+        guard context.supportsJobControl else {
+            context.writeStderr("pgrep: process table is unavailable\n")
+            return 1
+        }
+
+        switch parsePgrepArguments(options.args) {
+        case let .failure(message):
+            context.writeStderr("pgrep: \(message)\n")
+            return 2
+        case let .success(invocation):
+            let matches: [ShellJobSnapshot]
+            do {
+                matches = try matchingProcesses(
+                    await context.listJobs(),
+                    pattern: invocation.pattern,
+                    fullCommand: invocation.fullCommand,
+                    exact: invocation.exact,
+                    selection: invocation.selection
+                )
+            } catch {
+                context.writeStderr("pgrep: invalid regular expression: \(error.localizedDescription)\n")
+                return 2
+            }
+
+            if invocation.countOnly {
+                context.writeStdout("\(matches.count)\n")
+            } else {
+                for process in matches {
+                    if invocation.listFull {
+                        context.writeStdout("\(process.pid) \(process.commandLine)\n")
+                    } else if invocation.listName {
+                        context.writeStdout("\(process.pid) \(processName(process.commandLine))\n")
+                    } else {
+                        context.writeStdout("\(process.pid)\n")
+                    }
+                }
+            }
+            return matches.isEmpty ? 1 : 0
+        }
+    }
+}
+
 struct KillCommand: BuiltinCommand {
     struct Options: ParsableArguments {
         @Argument(parsing: .captureForPassthrough, help: "Targets and optional signal flags")
@@ -836,6 +902,256 @@ struct KillCommand: BuiltinCommand {
 
         return .signal(signal, targets)
     }
+}
+
+struct PkillCommand: BuiltinCommand {
+    struct Options: ParsableArguments {
+        @Argument(parsing: .captureForPassthrough, help: "Options and a process-name pattern")
+        var args: [String] = []
+    }
+
+    static let name = "pkill"
+    static let overview = "Signal matching emulated background processes"
+
+    static func run(context: inout CommandContext, options: Options) async -> Int32 {
+        if options.args == ["--help"] || options.args == ["-h"] {
+            context.writeStdout(
+                """
+                OVERVIEW: Signal matching emulated background processes
+
+                USAGE: pkill [-SIGNAL|-s SIGNAL] [-f] [-x] [-n|-o] pattern
+
+                Only background jobs launched by this BashSession are visible.
+
+                """
+            )
+            return 0
+        }
+
+        guard context.supportsJobControl else {
+            context.writeStderr("pkill: process table is unavailable\n")
+            return 1
+        }
+
+        switch parsePkillArguments(options.args) {
+        case let .failure(message):
+            context.writeStderr("pkill: \(message)\n")
+            return 2
+        case let .success(invocation):
+            let matches: [ShellJobSnapshot]
+            do {
+                matches = try matchingProcesses(
+                    await context.listJobs(),
+                    pattern: invocation.pattern,
+                    fullCommand: invocation.fullCommand,
+                    exact: invocation.exact,
+                    selection: invocation.selection
+                )
+            } catch {
+                context.writeStderr("pkill: invalid regular expression: \(error.localizedDescription)\n")
+                return 2
+            }
+
+            guard !matches.isEmpty else {
+                return 1
+            }
+
+            var allTerminated = true
+            for process in matches {
+                if !(await context.terminateProcess(pid: process.pid, signal: invocation.signal)) {
+                    allTerminated = false
+                }
+            }
+            return allTerminated ? 0 : 1
+        }
+    }
+}
+
+private enum ProcessSelection {
+    case all
+    case newest
+    case oldest
+}
+
+private struct PgrepInvocation {
+    var pattern: String
+    var fullCommand = false
+    var exact = false
+    var listName = false
+    var listFull = false
+    var countOnly = false
+    var selection: ProcessSelection = .all
+}
+
+private struct PkillInvocation {
+    var pattern: String
+    var fullCommand = false
+    var exact = false
+    var selection: ProcessSelection = .all
+    var signal: Int32 = 15
+}
+
+private enum ProcessParseResult<Value> {
+    case success(Value)
+    case failure(String)
+}
+
+private func parsePgrepArguments(_ args: [String]) -> ProcessParseResult<PgrepInvocation> {
+    var invocation = PgrepInvocation(pattern: "")
+    var operands: [String] = []
+    var parseOptions = true
+
+    for token in args {
+        if parseOptions, token == "--" {
+            parseOptions = false
+            continue
+        }
+
+        if parseOptions, token.hasPrefix("--") {
+            switch token {
+            case "--full": invocation.fullCommand = true
+            case "--list-name": invocation.listName = true
+            case "--list-full": invocation.listFull = true
+            case "--exact": invocation.exact = true
+            case "--newest": invocation.selection = .newest
+            case "--oldest": invocation.selection = .oldest
+            case "--count": invocation.countOnly = true
+            default: return .failure("unrecognized option '\(token)'")
+            }
+            continue
+        }
+
+        if parseOptions, token.hasPrefix("-"), token.count > 1 {
+            for flag in token.dropFirst() {
+                switch flag {
+                case "f": invocation.fullCommand = true
+                case "l": invocation.listName = true
+                case "a": invocation.listFull = true
+                case "x": invocation.exact = true
+                case "n": invocation.selection = .newest
+                case "o": invocation.selection = .oldest
+                case "c": invocation.countOnly = true
+                default: return .failure("invalid option -- '\(flag)'")
+                }
+            }
+            continue
+        }
+
+        operands.append(token)
+    }
+
+    guard operands.count == 1 else {
+        return .failure("usage: pgrep [-f] [-l|-a] [-x] [-n|-o] [-c] pattern")
+    }
+    invocation.pattern = operands[0]
+    return .success(invocation)
+}
+
+private func parsePkillArguments(_ args: [String]) -> ProcessParseResult<PkillInvocation> {
+    var invocation = PkillInvocation(pattern: "")
+    var operands: [String] = []
+    var parseOptions = true
+    var index = 0
+
+    while index < args.count {
+        let token = args[index]
+        if parseOptions, token == "--" {
+            parseOptions = false
+            index += 1
+            continue
+        }
+
+        if parseOptions, token == "-s" || token == "--signal" {
+            guard index + 1 < args.count, let signal = parseSignalToken(args[index + 1]) else {
+                return .failure("option requires a valid signal -- s")
+            }
+            invocation.signal = signal
+            index += 2
+            continue
+        }
+
+        if parseOptions, token.hasPrefix("--") {
+            switch token {
+            case "--full": invocation.fullCommand = true
+            case "--exact": invocation.exact = true
+            case "--newest": invocation.selection = .newest
+            case "--oldest": invocation.selection = .oldest
+            default: return .failure("unrecognized option '\(token)'")
+            }
+            index += 1
+            continue
+        }
+
+        if parseOptions, token.hasPrefix("-"), token.count > 1 {
+            let candidateSignal = String(token.dropFirst())
+            if let signal = parseSignalToken(candidateSignal) {
+                invocation.signal = signal
+                index += 1
+                continue
+            }
+
+            for flag in token.dropFirst() {
+                switch flag {
+                case "f": invocation.fullCommand = true
+                case "x": invocation.exact = true
+                case "n": invocation.selection = .newest
+                case "o": invocation.selection = .oldest
+                default: return .failure("invalid option -- '\(flag)'")
+                }
+            }
+            index += 1
+            continue
+        }
+
+        operands.append(token)
+        index += 1
+    }
+
+    guard operands.count == 1 else {
+        return .failure("usage: pkill [-SIGNAL|-s SIGNAL] [-f] [-x] [-n|-o] pattern")
+    }
+    invocation.pattern = operands[0]
+    return .success(invocation)
+}
+
+private func matchingProcesses(
+    _ snapshots: [ShellJobSnapshot],
+    pattern: String,
+    fullCommand: Bool,
+    exact: Bool,
+    selection: ProcessSelection
+) throws -> [ShellJobSnapshot] {
+    let expression = exact ? "^(?:\(pattern))$" : pattern
+    let regex = try NSRegularExpression(pattern: expression)
+    var matches = snapshots.filter { snapshot in
+        guard case .running = snapshot.state else {
+            return false
+        }
+        let candidate = fullCommand ? snapshot.commandLine : processName(snapshot.commandLine)
+        let range = NSRange(candidate.startIndex..<candidate.endIndex, in: candidate)
+        return regex.firstMatch(in: candidate, options: [], range: range) != nil
+    }
+
+    switch selection {
+    case .all:
+        return matches
+    case .newest:
+        matches.sort { lhs, rhs in
+            lhs.launchedAt == rhs.launchedAt ? lhs.id > rhs.id : lhs.launchedAt > rhs.launchedAt
+        }
+    case .oldest:
+        matches.sort { lhs, rhs in
+            lhs.launchedAt == rhs.launchedAt ? lhs.id < rhs.id : lhs.launchedAt < rhs.launchedAt
+        }
+    }
+    return Array(matches.prefix(1))
+}
+
+private func processName(_ commandLine: String) -> String {
+    guard let token = commandLine.split(whereSeparator: { $0.isWhitespace }).first else {
+        return commandLine
+    }
+    return (String(token) as NSString).lastPathComponent
 }
 
 private func parseJobID(_ raw: String) -> Int? {

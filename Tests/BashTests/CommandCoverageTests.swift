@@ -10,7 +10,7 @@ struct CommandCoverageTests {
         "gzip", "gunzip", "zcat", "zip", "unzip", "tar",
         "jq", "yq", "xan", "plutil",
         "basename", "cd", "dirname", "du", "echo", "env", "export", "find", "printenv", "pwd", "tee",
-        "curl", "wget", "html-to-markdown", "clear", "date", "hostname", "false", "whoami", "help", "history", "set", "test", "command", "exit", "jobs", "fg", "wait", "ps", "kill", "seq", "sleep", "time", "timeout", "mktemp", "true", "which",
+        "curl", "wget", "html-to-markdown", "clear", "date", "hostname", "false", "whoami", "help", "history", "set", "test", "command", "exit", "jobs", "fg", "wait", "ps", "pgrep", "kill", "pkill", "seq", "sleep", "time", "timeout", "mktemp", "true", "which",
     ]
 
     @Test("all builtins support --help")
