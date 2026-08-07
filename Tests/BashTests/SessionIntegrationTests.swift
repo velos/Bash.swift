@@ -1022,14 +1022,22 @@ struct SessionIntegrationTests {
         #expect(pipeline.stdoutString == "found\n")
     }
 
-    @Test("output process substitution remains unsupported")
-    func outputProcessSubstitutionRemainsUnsupported() async throws {
+    @Test("output process substitution buffers producer output")
+    func outputProcessSubstitutionBuffersProducerOutput() async throws {
         let (session, root) = try await TestSupport.makeSession()
         defer { TestSupport.removeDirectory(root) }
 
         let result = await session.run("echo hi > >(cat)")
-        #expect(result.exitCode == 2)
-        #expect(result.stderrString.contains("output process substitution"))
+        #expect(result.exitCode == 0)
+        #expect(result.stdoutString == "hi\n")
+
+        let tee = await session.run("printf 'one\\ntwo\\n' | tee >(grep two) >(tr a-z A-Z)")
+        #expect(tee.exitCode == 0)
+        #expect(tee.stdoutString == "one\ntwo\ntwo\nONE\nTWO\n")
+
+        let fileSink = await session.run("printf 'captured' > >(cat > captured.txt); cat captured.txt")
+        #expect(fileSink.exitCode == 0)
+        #expect(fileSink.stdoutString == "captured")
     }
 
     @Test("history formatting")

@@ -272,7 +272,7 @@ package enum ShellExecutor {
     }
 
     private static func executeSingleCommand(
-        _ command: ParsedCommand,
+        _ parsedCommand: ParsedCommand,
         stdin: Data,
         filesystem: any FileSystem,
         currentDirectory: inout String,
@@ -297,6 +297,16 @@ package enum ShellExecutor {
             )
         }
 
+        let prepared: PreparedOutputProcessSubstitutions
+        do {
+            prepared = try prepareOutputProcessSubstitutions(in: parsedCommand)
+        } catch let error as ShellError {
+            return CommandResult(stdout: Data(), stderr: Data("\(error)\n".utf8), exitCode: 2)
+        } catch {
+            return CommandResult(stdout: Data(), stderr: Data("\(error)\n".utf8), exitCode: 2)
+        }
+        let command = prepared.command
+
         let baseFilesystem = ShellPermissionedFileSystem.unwrap(filesystem)
         let initialCommandName = command.words.first?.rawValue.isEmpty == false
             ? command.words.first!.rawValue
@@ -307,6 +317,28 @@ package enum ShellExecutor {
             permissionAuthorizer: permissionAuthorizer,
             executionControl: executionControl
         )
+
+        if !prepared.substitutions.isEmpty {
+            do {
+                try await expansionFilesystem.createDirectory(
+                    path: WorkspacePath(normalizing: "/tmp"),
+                    recursive: true
+                )
+                for substitution in prepared.substitutions {
+                    try await expansionFilesystem.writeFile(
+                        path: substitution.path,
+                        data: Data(),
+                        append: false
+                    )
+                }
+            } catch {
+                return CommandResult(
+                    stdout: Data(),
+                    stderr: Data("output process substitution: \(error)\n".utf8),
+                    exitCode: 1
+                )
+            }
+        }
 
         var input = stdin
         var stderr = Data()
@@ -621,6 +653,176 @@ package enum ShellExecutor {
             secretOutputRedactor: secretOutputRedactor
         ) {
             return redirectionFailure
+        }
+
+        if !prepared.substitutions.isEmpty {
+            result = await drainOutputProcessSubstitutions(
+                prepared.substitutions,
+                into: result,
+                filesystem: filesystem,
+                currentDirectory: currentDirectory,
+                environment: environment,
+                history: history,
+                commandRegistry: commandRegistry,
+                shellFunctions: shellFunctions,
+                enableGlobbing: enableGlobbing,
+                permissionAuthorizer: permissionAuthorizer,
+                executionControl: executionControl,
+                secretPolicy: secretPolicy,
+                secretResolver: secretResolver,
+                secretTracker: secretTracker,
+                secretOutputRedactor: secretOutputRedactor
+            )
+        }
+
+        return result
+    }
+
+    private struct BufferedOutputProcessSubstitution: Sendable {
+        let path: WorkspacePath
+        let command: String
+    }
+
+    private struct PreparedOutputProcessSubstitutions: Sendable {
+        let command: ParsedCommand
+        let substitutions: [BufferedOutputProcessSubstitution]
+    }
+
+    private static func prepareOutputProcessSubstitutions(
+        in command: ParsedCommand
+    ) throws -> PreparedOutputProcessSubstitutions {
+        var substitutions: [BufferedOutputProcessSubstitution] = []
+
+        func rewrite(_ word: ShellWord) throws -> ShellWord {
+            var rewrittenParts: [ShellWordPart] = []
+            for part in word.parts {
+                guard part.quote == .none else {
+                    rewrittenParts.append(part)
+                    continue
+                }
+
+                var text = ""
+                var index = part.text.startIndex
+                while index < part.text.endIndex {
+                    if let capture = try ProcessSubstitutionSyntax.capture(in: part.text, from: index) {
+                        switch capture.kind {
+                        case .input:
+                            text += capture.raw
+                        case .output:
+                            let path = WorkspacePath(
+                                normalizing: "/tmp/bashswift-ps-out-\(UUID().uuidString.lowercased())"
+                            )
+                            substitutions.append(
+                                BufferedOutputProcessSubstitution(path: path, command: capture.content)
+                            )
+                            text += path.string
+                        }
+                        index = capture.endIndex
+                        continue
+                    }
+
+                    text.append(part.text[index])
+                    index = part.text.index(after: index)
+                }
+                rewrittenParts.append(ShellWordPart(text: text, quote: part.quote))
+            }
+            return ShellWord(parts: rewrittenParts)
+        }
+
+        let words = try command.words.map(rewrite)
+        let redirections = try command.redirections.map { redirection in
+            Redirection(
+                type: redirection.type,
+                target: try redirection.target.map(rewrite),
+                hereDocument: redirection.hereDocument
+            )
+        }
+        return PreparedOutputProcessSubstitutions(
+            command: ParsedCommand(words: words, redirections: redirections),
+            substitutions: substitutions
+        )
+    }
+
+    private static func drainOutputProcessSubstitutions(
+        _ substitutions: [BufferedOutputProcessSubstitution],
+        into initialResult: CommandResult,
+        filesystem: any FileSystem,
+        currentDirectory: String,
+        environment: [String: String],
+        history: [String],
+        commandRegistry: [String: AnyBuiltinCommand],
+        shellFunctions: [String: String],
+        enableGlobbing: Bool,
+        permissionAuthorizer: any ShellPermissionAuthorizing,
+        executionControl: ExecutionControl?,
+        secretPolicy: SecretHandlingPolicy,
+        secretResolver: (any SecretReferenceResolving)?,
+        secretTracker: SecretExposureTracker?,
+        secretOutputRedactor: any SecretOutputRedacting
+    ) async -> CommandResult {
+        var result = initialResult
+
+        for substitution in substitutions {
+            let input: Data
+            do {
+                input = try await filesystem.readFile(path: substitution.path)
+            } catch {
+                result.stderr.append(Data("\(substitution.path.string): \(error)\n".utf8))
+                continue
+            }
+
+            let nested = await expandCommandSubstitutionsInCommandText(
+                substitution.command,
+                filesystem: filesystem,
+                currentDirectory: currentDirectory,
+                environment: environment,
+                history: history,
+                commandRegistry: commandRegistry,
+                shellFunctions: shellFunctions,
+                enableGlobbing: enableGlobbing,
+                permissionAuthorizer: permissionAuthorizer,
+                executionControl: executionControl,
+                secretPolicy: secretPolicy,
+                secretResolver: secretResolver,
+                secretTracker: secretTracker,
+                secretOutputRedactor: secretOutputRedactor
+            )
+            result.stderr.append(nested.stderr)
+            if nested.failure != nil || nested.error != nil {
+                if let error = nested.error {
+                    result.stderr.append(Data("\(error)\n".utf8))
+                }
+                try? await filesystem.remove(path: substitution.path, recursive: false)
+                continue
+            }
+
+            do {
+                let parsed = try ShellParser.parse(nested.text)
+                let execution = await execute(
+                    parsedLine: parsed,
+                    stdin: input,
+                    filesystem: filesystem,
+                    currentDirectory: currentDirectory,
+                    environment: environment,
+                    history: history,
+                    commandRegistry: commandRegistry,
+                    shellFunctions: shellFunctions,
+                    enableGlobbing: enableGlobbing,
+                    jobControl: nil,
+                    permissionAuthorizer: permissionAuthorizer,
+                    executionControl: executionControl,
+                    secretPolicy: secretPolicy,
+                    secretResolver: secretResolver,
+                    secretTracker: secretTracker,
+                    secretOutputRedactor: secretOutputRedactor
+                )
+                result.stdout.append(execution.result.stdout)
+                result.stderr.append(execution.result.stderr)
+            } catch {
+                result.stderr.append(Data("\(error)\n".utf8))
+            }
+
+            try? await filesystem.remove(path: substitution.path, recursive: false)
         }
 
         return result
@@ -1566,7 +1768,7 @@ package enum ShellExecutor {
                     return TextExpansionOutcome(
                         text: output,
                         stderr: stderr,
-                        error: .unsupported("output process substitution >(...) is not supported"),
+                        error: .unsupported("output process substitution was not prepared"),
                         failure: nil
                     )
                 }
