@@ -1161,6 +1161,22 @@ struct SessionIntegrationTests {
         #expect(sortCheckBad.exitCode == 1)
         #expect(sortCheckBad.stderrString.contains("not sorted"))
 
+        let sortVersions = await session.run("printf 'v1.10\\nv1.2\\nv1.9\\n' | sort -V")
+        #expect(sortVersions.exitCode == 0)
+        #expect(sortVersions.stdoutString == "v1.2\nv1.9\nv1.10\n")
+
+        let sortHumanNumbers = await session.run("printf '1K\\n900M\\n2G\\n' | sort -h")
+        #expect(sortHumanNumbers.exitCode == 0)
+        #expect(sortHumanNumbers.stdoutString == "1K\n900M\n2G\n")
+
+        let sortByDelimitedField = await session.run("printf 'b:2\\na:10\\nc:1\\n' | sort -t: -k2,2n")
+        #expect(sortByDelimitedField.exitCode == 0)
+        #expect(sortByDelimitedField.stdoutString == "c:1\nb:2\na:10\n")
+
+        let sortNullDelimited = await session.run("printf 'YgBhAA==' | base64 -d | sort -z | xxd -p")
+        #expect(sortNullDelimited.exitCode == 0)
+        #expect(sortNullDelimited.stdoutString == "61006200\n")
+
         let uniqIgnoreCase = await session.run("printf 'Foo\\nfoo\\nBar' | uniq -i -c")
         #expect(uniqIgnoreCase.exitCode == 0)
         #expect(uniqIgnoreCase.stdoutString == "2 Foo\n1 Bar\n")
