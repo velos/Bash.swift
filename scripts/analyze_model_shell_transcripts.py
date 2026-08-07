@@ -284,6 +284,8 @@ SYNTAX_PATTERNS = {
     "stderr-merge": re.compile(r"2>&1"),
     "command-substitution": re.compile(r"\$\("),
     "process-substitution": re.compile(r"[<>]\("),
+    "input-process-substitution": re.compile(r"<\("),
+    "output-process-substitution": re.compile(r">\("),
     "heredoc": re.compile(r"<<-?\s*['\"]?[A-Za-z_]"),
     "here-string": re.compile(r"<<<"),
     "variable-expansion": re.compile(r"\$(?:\{|[A-Za-z_?!#@*0-9])"),

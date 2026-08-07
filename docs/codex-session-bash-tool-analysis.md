@@ -121,7 +121,8 @@ Counts below are tool calls containing each form at least once.
 | Command substitution | 549 | 622 | Supported. |
 | `for` loop | 682 | 490 | Supported. |
 | Single-bracket test | 220 | 106 | Supported in conditions and now as a standalone command. |
-| Process substitution | 143 | 27 | Input `<(...)` supported; output `>(...)` is not. |
+| Input process substitution (`<(...)`) | 79 | 22 | Supported by materializing command output in the virtual filesystem. |
+| Output process substitution (`>(...)`) | 64 | 5 | Supported with deterministic buffered consumers; not concurrent streaming. |
 | Here-string (`<<<`) | 272 | 0 | Supported, including expansion and newline-terminated stdin behavior. |
 
 Claude's much higher rate of `2>/dev/null`, `2>&1`, pipelines, and chained commands means isolated command unit tests are insufficient. Composite workflow tests now preserve representative patterns from both providers.
@@ -159,6 +160,35 @@ find . -type f -not -path '*/vendor/*' | head -200
 
 The transcript scenario exposed that `find -path` reused shell pathname globbing, where `*` does not cross `/`. `find` path patterns do allow that, so matching now uses whole-path semantics and has a dedicated regression test.
 
+### `jq` construction and collection filters
+
+OpenAI emitted 3,539 `jq` invocations. Option signatures included 70
+`-nc --arg` calls, 37 `-n --slurpfile ... --slurpfile` calls, and 27
+`-r --arg` calls. Bash.swift now supports those bindings through `--arg`,
+`--argjson`, and `--slurpfile`, along with `$variable` references and object
+construction.
+
+A filter-name scan found another concentrated tier: `keys` appeared in 424
+invocations, `join` in 344, `length` in 306, `map` in 237, and `tostring` in
+162. Those five filters are covered without claiming the much larger jq filter
+and update language.
+
+### `sort` modes
+
+The normalized option scan also exposed recurring `sort -V`, `sort -h`, and
+`sort -z` calls plus field-key forms using `-t` and `-k`. Version, human-number,
+NUL-record, and field-key sorting are now covered. Locale ordering and the full
+per-key GNU modifier grammar remain approximations or gaps.
+
+### Legacy backtick audit
+
+A quote-aware review of structured calls containing backticks found no clear
+intentional legacy command substitutions. The apparent samples were dominated
+by Markdown/code-search patterns, JavaScript template literals, and ANSI-C
+quoted GitHub text. Backtick substitution therefore remains unsupported until
+the structured corpus contains a reproducible deliberate call; `$()` remains
+the model-preferred and supported form.
+
 ## Prioritized Work Outcome and Next Gaps
 
 1. Done: add here-string (`<<<`) parsing and tests. It appeared in 272 OpenAI calls; the implementation expands its single word without field splitting and appends the shell-required newline.
@@ -166,6 +196,7 @@ The transcript scenario exposed that `find -path` reused shell pathname globbing
 3. Done for the next concrete signatures: the extractor can now report normalized per-command option signatures, which identified Claude's combined `grep -rhoE`, `-m NUM`, and `-a` forms. `grep` now supports prefix suppression, per-file maximum counts, and binary-as-text compatibility; broader GNU parity remains intentionally out of scope without additional evidence.
 4. Done at the library boundary: applications can register an explicit host-command adapter with per-invocation authorization, an environment-key allowlist, byte-preserving stdin/output, and an app-owned executor. Bash.swift never discovers or spawns host executables itself, so the jailed default remains unchanged.
 5. Done: the refreshed extractor retains provider totals and now emits per-model command/syntax profiles. A single combined ranking would hide the important `rg` versus `grep` and redirection-style differences between OpenAI and Anthropic models.
+6. Done: the syntax extractor reports input and output process substitution separately, so their distinct implementation and concurrency semantics remain visible.
 
 Output process substitution now has deterministic buffered semantics: producers
 write virtual temporary files, then `>(...)` consumers run in declaration order.
