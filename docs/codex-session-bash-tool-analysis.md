@@ -8,7 +8,8 @@ The analysis is reproducible with:
 
 ```bash
 python3 scripts/analyze_model_shell_transcripts.py \
-  --exclude-session 019fdcfe-7026-7a30-a66f-b164fe52b630
+  --exclude-session 019fdcfe-7026-7a30-a66f-b164fe52b630 \
+  --signature-command grep
 ```
 
 The extractor reads tool calls only. It excludes assistant/user prose and command output, removes here-document bodies before tokenizing shell commands, understands legacy and current Codex formats (including the newer JavaScript `exec` wrapper), and reads Claude `Bash` tool calls with their model identifiers.
@@ -35,6 +36,21 @@ The files are local snapshots rather than a controlled benchmark corpus. Counts 
 | Anthropic | `claude-fable-5` | 2,148 |
 | Anthropic | `claude-sonnet-5` | 784 |
 | Anthropic | `claude-opus-4-8` | 737 |
+
+The extractor also emits a `model_profiles` object with per-model command and
+syntax rankings. Command counts can exceed shell-call counts because one call
+can contain multiple pipelines or chained commands.
+
+| Model | Most-used commands in this snapshot | Distinctive shell shape |
+| --- | --- | --- |
+| `gpt-5.5` | `sed` 38,789; `git` 15,456; `rg` 13,603; `nl` 4,185; `swift` 4,121 | Pipelines (21,325) and globs (11,296) dominate. |
+| `gpt-5.4` | `sed` 9,419; `rg` 3,179; `git` 1,724; `nl` 1,669; `swift` 1,023 | Pipelines (5,384) dominate, with fewer compound chains. |
+| `gpt-5.3-codex` | `sed` 5,578; `rg` 2,290; `nl` 1,927; `git` 1,445; `swift` 868 | Pipeline-heavy (4,513) with more `&&` chains (1,209). |
+| `gpt-5.6-sol` | `sed` 6,616; `git` 3,543; `rg` 3,004; `head` 1,340; `bun` 1,143 | High `&&` (2,335), semicolon (1,430), and multiline (1,168) use. |
+| `claude-opus-5` | `grep` 3,892; `echo` 3,227; `head` 3,104; `cd` 1,768; `git` 1,394 | Pipelines (4,584), stderr redirects (3,013), and `2>&1` (2,326). |
+| `claude-fable-5` | `grep` 1,652; `head` 1,320; `git` 736; `echo` 732; `tail` 527 | Pipelines (1,587), semicolons (1,086), and stderr redirects (996). |
+| `claude-sonnet-5` | `echo` 614; `curl` 581; `grep` 437; `head` 362; `cd` 196 | Multiline calls (401) are nearly as frequent as pipelines (407). |
+| `claude-opus-4-8` | `echo` 1,038; `grep` 765; `head` 561; `cd` 430; `git` 243 | Pipelines (597), semicolons (402), and stderr redirects (389). |
 
 ### Codex tool-call generations
 
@@ -114,19 +130,20 @@ Claude's much higher rate of `2>/dev/null`, `2>&1`, pipelines, and chained comma
 
 ### Claude-style `grep`
 
-A targeted scan found 3,674 literal Claude `grep` invocations. Frequent signatures included:
+A fresh normalized signature scan found 6,746 Claude `grep` command occurrences. Frequent signatures included:
 
 | Form | Observed Claude invocations |
 | --- | ---: |
-| `grep -v` | 588 |
-| `grep -n` | 528 |
-| `grep -n ... -A N` | 347 |
-| `grep -rn` | 315 |
-| `grep -rn ... --include=GLOB` | 122 |
-| `grep -rn ... --include=GLOB --include=GLOB` | 27 |
-| `grep -q` | 39 |
+| `grep -n` | 1,376 |
+| `grep -E` | 1,132 |
+| `grep -rn` | 672 |
+| `grep -v` | 615 |
+| `grep -n ... -A N` | 390 |
+| `grep -rn ... --include=GLOB` | 240 |
+| `grep -c` | 193 |
+| `grep -iE` | 185 |
 
-Bash.swift now covers recursive `-r`/`-R`, quiet `-q`, forced filename prefixes with `-H`, `-A`/`-B`/`-C` context, and repeatable `--include`, `--exclude`, and `--exclude-dir` filters. `ModelShellTranscriptScenariosTests` and the expanded integration test exercise the combined forms rather than each flag in isolation. The project-wide convention reserves a lone `-h` for help, so GNU grep's filename-suppression meaning is intentionally not adopted.
+Bash.swift now covers recursive `-r`/`-R`, quiet `-q`, filename prefix controls with `-H`/`-h`, `-A`/`-B`/`-C` context, `-m` maximum counts, binary-as-text compatibility with `-a`, and repeatable `--include`, `--exclude`, and `--exclude-dir` filters. A bare `grep -h` still prints help, while `-h` used with a pattern has GNU filename-suppression semantics. `ModelShellTranscriptScenariosTests` and the expanded integration test exercise combined forms rather than each flag in isolation.
 
 ### Standalone `test` and `[`
 
@@ -142,10 +159,16 @@ find . -type f -not -path '*/vendor/*' | head -200
 
 The transcript scenario exposed that `find -path` reused shell pathname globbing, where `*` does not cross `/`. `find` path patterns do allow that, so matching now uses whole-path semantics and has a dedicated regression test.
 
-## Prioritized Remaining Work
+## Prioritized Work Outcome and Next Gaps
 
 1. Done: add here-string (`<<<`) parsing and tests. It appeared in 272 OpenAI calls; the implementation expands its single word without field splitting and appends the shell-required newline.
 2. Done within the truthful boundary: `pgrep` and `pkill` now inspect and signal only pseudo-processes launched as background jobs by the current `BashSession`. `lsof` remains intentionally unsupported because the pseudo-job runtime does not track per-job file descriptors or sockets. Observed host-oriented calls still require an explicit host adapter.
 3. Done for the next concrete signatures: the extractor can now report normalized per-command option signatures, which identified Claude's combined `grep -rhoE`, `-m NUM`, and `-a` forms. `grep` now supports prefix suppression, per-file maximum counts, and binary-as-text compatibility; broader GNU parity remains intentionally out of scope without additional evidence.
 4. Done at the library boundary: applications can register an explicit host-command adapter with per-invocation authorization, an environment-key allowlist, byte-preserving stdin/output, and an app-owned executor. Bash.swift never discovers or spawns host executables itself, so the jailed default remains unchanged.
-5. Re-run the extractor periodically and retain provider/model splits. A single combined ranking would hide the important `rg` versus `grep` and redirection-style differences between OpenAI and Anthropic models.
+5. Done: the refreshed extractor retains provider totals and now emits per-model command/syntax profiles. A single combined ranking would hide the important `rg` versus `grep` and redirection-style differences between OpenAI and Anthropic models.
+
+The next evidence-driven work should review output-process-substitution samples
+before implementing `>(...)`, add new option support only when normalized
+signatures cross a meaningful frequency threshold, and build application-owned
+host adapters for the specific external tools a product chooses to expose.
+`lsof` and host process discovery remain out of scope for the in-process core.

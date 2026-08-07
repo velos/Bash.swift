@@ -328,9 +328,22 @@ def main() -> None:
     excluded = set(args.exclude_session)
     requested_signatures = set(args.signature_command)
 
+    def provider_stats() -> dict[str, Any]:
+        return {
+            "files": 0,
+            "calls": 0,
+            "models": collections.Counter(),
+            "shapes": collections.Counter(),
+            "commands": collections.Counter(),
+            "syntax": collections.Counter(),
+            "signatures": collections.defaultdict(collections.Counter),
+            "model_commands": collections.defaultdict(collections.Counter),
+            "model_syntax": collections.defaultdict(collections.Counter),
+        }
+
     providers: dict[str, dict[str, Any]] = {
-        "openai": {"files": 0, "calls": 0, "models": collections.Counter(), "shapes": collections.Counter(), "commands": collections.Counter(), "syntax": collections.Counter(), "signatures": collections.defaultdict(collections.Counter)},
-        "anthropic": {"files": 0, "calls": 0, "models": collections.Counter(), "shapes": collections.Counter(), "commands": collections.Counter(), "syntax": collections.Counter(), "signatures": collections.defaultdict(collections.Counter)},
+        "openai": provider_stats(),
+        "anthropic": provider_stats(),
     }
 
     def record(provider: str, model: str, shape: str, command: str) -> None:
@@ -341,6 +354,7 @@ def main() -> None:
         scrubbed = without_heredoc_bodies(command)
         for name in command_names(scrubbed):
             stats["commands"][name] += 1
+            stats["model_commands"][model][name] += 1
         if requested_signatures:
             for name, arguments in command_invocations(scrubbed):
                 if name in requested_signatures:
@@ -348,6 +362,7 @@ def main() -> None:
         for syntax, pattern in SYNTAX_PATTERNS.items():
             if pattern.search(scrubbed):
                 stats["syntax"][syntax] += 1
+                stats["model_syntax"][model][syntax] += 1
 
     for path in files_under(codex_roots, {".json", ".jsonl"}):
         if any(identifier in path.name for identifier in excluded):
@@ -377,6 +392,14 @@ def main() -> None:
                     for signature, count in stats["signatures"][command].most_common(args.top)
                 ]
                 for command in args.signature_command
+            },
+            "model_profiles": {
+                model: {
+                    "calls": call_count,
+                    "commands": stats["model_commands"][model].most_common(args.top),
+                    "syntax": stats["model_syntax"][model].most_common(),
+                }
+                for model, call_count in stats["models"].most_common()
             },
         }
     print(json.dumps(output, indent=2))
