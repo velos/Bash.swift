@@ -167,8 +167,12 @@ The transcript scenario exposed that `find -path` reused shell pathname globbing
 4. Done at the library boundary: applications can register an explicit host-command adapter with per-invocation authorization, an environment-key allowlist, byte-preserving stdin/output, and an app-owned executor. Bash.swift never discovers or spawns host executables itself, so the jailed default remains unchanged.
 5. Done: the refreshed extractor retains provider totals and now emits per-model command/syntax profiles. A single combined ranking would hide the important `rg` versus `grep` and redirection-style differences between OpenAI and Anthropic models.
 
-The next evidence-driven work should review output-process-substitution samples
-before implementing `>(...)`, add new option support only when normalized
-signatures cross a meaningful frequency threshold, and build application-owned
-host adapters for the specific external tools a product chooses to expose.
-`lsof` and host process discovery remain out of scope for the in-process core.
+Output process substitution now has deterministic buffered semantics: producers
+write virtual temporary files, then `>(...)` consumers run in declaration order.
+This covers redirection and `tee >(command)` transcript shapes without claiming
+streaming or concurrent pipe behavior. The next evidence-driven work should add
+new option support only when normalized signatures cross a meaningful frequency
+threshold and build application-owned host adapters for the specific external
+tools a product chooses to expose. `lsof` and host process discovery remain out
+of scope for the in-process core; the host-adapter cookbook documents a narrow
+listener-query policy when an application chooses to bridge it.
