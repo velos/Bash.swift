@@ -102,6 +102,7 @@ package enum BashCompiledCommands {
             builtin(HelpCommand.self),
             builtin(HistoryCommand.self),
             builtin(SetCommand.self),
+            builtin(TestCommand.self),
             builtin(CommandCommand.self),
             builtin(ExitCommand.self),
             builtin(JobsCommand.self),

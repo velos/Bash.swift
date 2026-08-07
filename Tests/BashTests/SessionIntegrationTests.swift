@@ -1469,6 +1469,50 @@ struct SessionIntegrationTests {
         #expect(rgTypeExclude.stdoutString.contains("/home/user/corpus/a.txt:hello"))
     }
 
+    @Test("grep supports model-generated recursive filters, context, and quiet checks")
+    func grepSupportsModelGeneratedReconnaissanceForms() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        _ = await session.run("mkdir -p Sources/Nested vendor")
+        _ = await session.run("printf 'before\\nneedle swift\\nafter one\\nafter two\\n' > Sources/App.swift")
+        _ = await session.run("printf 'needle typescript\\n' > Sources/Nested/App.ts")
+        _ = await session.run("printf 'needle markdown\\n' > Sources/Notes.md")
+        _ = await session.run("printf 'needle vendored\\n' > vendor/Vendor.swift")
+
+        // Claude commonly combines recursive/line-number flags with one or
+        // more --include filters while inspecting a repository.
+        let included = await session.run(
+            "grep -rn needle Sources --include='*.swift' --include='*.ts'"
+        )
+        #expect(included.exitCode == 0)
+        #expect(included.stdoutString.contains("/home/user/Sources/App.swift:2:needle swift"))
+        #expect(included.stdoutString.contains("/home/user/Sources/Nested/App.ts:1:needle typescript"))
+        #expect(!included.stdoutString.contains("Notes.md"))
+
+        let excluded = await session.run(
+            "grep -R needle . --exclude-dir=vendor --exclude='*.md'"
+        )
+        #expect(excluded.exitCode == 0)
+        #expect(excluded.stdoutString.contains("needle swift"))
+        #expect(!excluded.stdoutString.contains("needle vendored"))
+        #expect(!excluded.stdoutString.contains("needle markdown"))
+
+        // `grep -n PATTERN -B N -A N file` is another frequent transcript
+        // shape, including options placed after the pattern.
+        let context = await session.run("grep -n needle -B 1 -A 2 Sources/App.swift")
+        #expect(context.exitCode == 0)
+        #expect(context.stdoutString == "1-before\n2:needle swift\n3-after one\n4-after two\n")
+
+        let quietMatch = await session.run("grep -q needle Sources/App.swift")
+        #expect(quietMatch.exitCode == 0)
+        #expect(quietMatch.stdoutString.isEmpty)
+
+        let quietMiss = await session.run("grep -q absent Sources/App.swift")
+        #expect(quietMiss.exitCode == 1)
+        #expect(quietMiss.stdoutString.isEmpty)
+    }
+
     @Test("gzip gunzip zcat zip unzip and tar commands")
     func gzipGunzipZcatZipUnzipAndTarCommands() async throws {
         let (session, root) = try await TestSupport.makeSession()

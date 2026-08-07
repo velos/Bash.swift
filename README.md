@@ -326,7 +326,7 @@ Core built-in coverage includes:
 - Data tools: `jq`, `yq`, `xan`, `plutil`
 - Compression and archives: `gzip`, `gunzip`, `zcat`, `zip`, `unzip`, `tar`
 - Navigation and environment: `basename`, `cd`, `dirname`, `du`, `echo`, `env`, `export`, `find`, `printenv`, `pwd`, `tee`
-- Utilities: `clear`, `command`, `date`, `exit`, `false`, `fg`, `help`, `history`, `jobs`, `kill`, `mktemp`, `ps`, `seq`, `set`, `sleep`, `time`, `timeout`, `true`, `wait`, `whoami`, `which`
+- Utilities: `clear`, `command`, `date`, `exit`, `false`, `fg`, `help`, `history`, `jobs`, `kill`, `mktemp`, `ps`, `seq`, `set`, `sleep`, `test` / `[`, `time`, `timeout`, `true`, `wait`, `whoami`, `which`
 - Network commands: `curl`, `wget`, `html-to-markdown`
 
 Optional command sets:

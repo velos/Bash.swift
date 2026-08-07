@@ -89,6 +89,33 @@ struct ShellSemanticsTests {
         #expect(TestSupport.text(condition.stdout) == "failed\n")
     }
 
+    @Test("test and bracket commands participate in shell chains")
+    func testCommandsParticipateInShellChains() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        _ = await session.run("mkdir -p Sources")
+        _ = await session.run("printf content > Sources/App.swift")
+
+        let file = await session.run("test -f Sources/App.swift && echo file")
+        #expect(file.exitCode == 0)
+        #expect(TestSupport.text(file.stdout) == "file\n")
+
+        let directory = await session.run("[ -d Sources ] && echo directory")
+        #expect(directory.exitCode == 0)
+        #expect(TestSupport.text(directory.stdout) == "directory\n")
+
+        let nonEmpty = await session.run("test -s Sources/App.swift")
+        #expect(nonEmpty.exitCode == 0)
+
+        let missing = await session.run("test -e missing || echo absent")
+        #expect(missing.exitCode == 0)
+        #expect(TestSupport.text(missing.stdout) == "absent\n")
+
+        let negated = await session.run("test ! -e missing")
+        #expect(negated.exitCode == 0)
+    }
+
     @Test("inline environment assignments apply to a single command")
     func inlineEnvironmentAssignments() async throws {
         let (session, root) = try await TestSupport.makeSession()

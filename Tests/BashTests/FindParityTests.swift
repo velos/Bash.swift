@@ -33,6 +33,19 @@ struct FindParityTests {
         #expect(result.stdoutString == "/home/user/corpus/b.md\n")
     }
 
+    @Test("path globs cross directory separators")
+    func pathGlobsCrossDirectorySeparators() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        _ = await session.run("mkdir -p project/src project/vendor/nested")
+        _ = await session.run("touch project/src/main.swift project/vendor/nested/generated.swift")
+
+        let result = await session.run("find project -type f -not -path '*/vendor/*'")
+        #expect(result.exitCode == 0)
+        #expect(result.stdoutString == "/home/user/project/src/main.swift\n")
+    }
+
     @Test("exec single-file mode")
     func execSingleFileMode() async throws {
         let (session, root) = try await TestSupport.makeSession()

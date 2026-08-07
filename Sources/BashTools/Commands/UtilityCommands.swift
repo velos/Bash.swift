@@ -271,6 +271,121 @@ struct SetCommand: BuiltinCommand {
     }
 }
 
+struct TestCommand: BuiltinCommand {
+    struct Options: ParsableArguments {
+        @Argument(parsing: .captureForPassthrough, help: "Expression to evaluate")
+        var expression: [String] = []
+    }
+
+    static let name = "test"
+    static let aliases = ["["]
+    static let overview = "Evaluate a conditional expression"
+
+    static func run(context: inout CommandContext, options: Options) async -> Int32 {
+        if options.expression == ["--help"] || options.expression == ["-h"] {
+            context.writeStdout(
+                """
+                OVERVIEW: Evaluate a conditional expression
+
+                USAGE: test EXPRESSION
+                   or: [ EXPRESSION ]
+
+                """
+            )
+            return 0
+        }
+        if let first = options.expression.first, first.hasPrefix("--") {
+            context.writeStderr("test: invalid option -- \(first)\n")
+            return 2
+        }
+
+        var expression = options.expression
+        if context.commandName == "[" {
+            guard expression.last == "]" else {
+                context.writeStderr("test: missing ']'\n")
+                return 2
+            }
+            expression.removeLast()
+        }
+
+        let negate = expression.first == "!"
+        if negate {
+            expression.removeFirst()
+        }
+        let result = await evaluate(expression, context: &context)
+        guard negate, result <= 1 else {
+            return result
+        }
+        return result == 0 ? 1 : 0
+    }
+
+    private static func evaluate(
+        _ expression: [String],
+        context: inout CommandContext
+    ) async -> Int32 {
+        if expression.isEmpty {
+            return 1
+        }
+        if expression.count == 1 {
+            return expression[0].isEmpty ? 1 : 0
+        }
+        if expression.count == 2 {
+            let operation = expression[0]
+            let value = expression[1]
+            switch operation {
+            case "-n":
+                return value.isEmpty ? 1 : 0
+            case "-z":
+                return value.isEmpty ? 0 : 1
+            case "-e", "-f", "-d", "-s":
+                let path = context.resolvePath(value)
+                guard await context.filesystem.exists(path: path),
+                      let info = try? await context.filesystem.stat(path: path) else {
+                    return 1
+                }
+                switch operation {
+                case "-e": return 0
+                case "-f": return info.isDirectory ? 1 : 0
+                case "-d": return info.isDirectory ? 0 : 1
+                case "-s": return !info.isDirectory && info.size > 0 ? 0 : 1
+                default: return 2
+                }
+            default:
+                context.writeStderr("test: unsupported expression\n")
+                return 2
+            }
+        }
+        if expression.count == 3 {
+            let lhs = expression[0]
+            let operation = expression[1]
+            let rhs = expression[2]
+            switch operation {
+            case "=", "==": return lhs == rhs ? 0 : 1
+            case "!=": return lhs != rhs ? 0 : 1
+            case "-eq", "-ne", "-lt", "-le", "-gt", "-ge":
+                guard let left = Int(lhs), let right = Int(rhs) else {
+                    context.writeStderr("test: integer expression expected\n")
+                    return 2
+                }
+                switch operation {
+                case "-eq": return left == right ? 0 : 1
+                case "-ne": return left != right ? 0 : 1
+                case "-lt": return left < right ? 0 : 1
+                case "-le": return left <= right ? 0 : 1
+                case "-gt": return left > right ? 0 : 1
+                case "-ge": return left >= right ? 0 : 1
+                default: return 2
+                }
+            default:
+                context.writeStderr("test: unsupported expression\n")
+                return 2
+            }
+        }
+        context.writeStderr("test: unsupported expression\n")
+        return 2
+    }
+}
+
 struct CommandCommand: BuiltinCommand {
     struct Options: ParsableArguments {
         @Argument(parsing: .captureForPassthrough, help: "Command invocation")
