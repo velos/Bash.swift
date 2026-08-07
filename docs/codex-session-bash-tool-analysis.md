@@ -106,7 +106,7 @@ Counts below are tool calls containing each form at least once.
 | `for` loop | 682 | 490 | Supported. |
 | Single-bracket test | 220 | 106 | Supported in conditions and now as a standalone command. |
 | Process substitution | 143 | 27 | Input `<(...)` supported; output `>(...)` is not. |
-| Here-string (`<<<`) | 272 | 0 | Unsupported; the clearest remaining syntax candidate. |
+| Here-string (`<<<`) | 272 | 0 | Supported, including expansion and newline-terminated stdin behavior. |
 
 Claude's much higher rate of `2>/dev/null`, `2>&1`, pipelines, and chained commands means isolated command unit tests are insufficient. Composite workflow tests now preserve representative patterns from both providers.
 
@@ -144,7 +144,7 @@ The transcript scenario exposed that `find -path` reused shell pathname globbing
 
 ## Prioritized Remaining Work
 
-1. Add here-string (`<<<`) parsing and tests. It appeared in 272 OpenAI calls and remains a genuine language gap, though samples should be reviewed to separate scripts from patch-content noise.
+1. Done: add here-string (`<<<`) parsing and tests. It appeared in 272 OpenAI calls; the implementation expands its single word without field splitting and appends the shell-required newline.
 2. Evaluate in-process `pgrep`/`pkill`/`lsof`-style introspection only against Bash.swift's pseudo-job model. Observed usage (`pgrep`: OpenAI 222, Anthropic 80; `lsof`: OpenAI 165, Anthropic 12) often targets host processes that an in-process shell cannot truthfully expose.
 3. Extend `grep` only from concrete signatures. Remaining likely candidates include long options, binary-file behavior, and full GNU context-group separators; avoid broad GNU parity without transcript evidence.
 4. Keep external runtimes/build tools out of core. If applications need `swift`, `bun`, `pnpm`, `node`, `gh`, or Xcode commands, design an explicit permissioned host-command adapter rather than weakening the jailed default.

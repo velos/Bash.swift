@@ -40,6 +40,7 @@ package enum LexToken: Sendable {
     case redirErrToOut
     case redirAllOut
     case redirAllAppend
+    case redirHereString
     case redirHereDoc(HereDocument)
 }
 
@@ -89,7 +90,8 @@ package enum ShellLexer {
                 tokens.append(.semicolon)
             case .pipe, .andIf, .orIf, .semicolon, .background,
                  .redirOut, .redirAppend, .redirIn, .redirErrOut, .redirErrAppend,
-                 .redirErrToOut, .redirAllOut, .redirAllAppend, .redirHereDoc:
+                 .redirErrToOut, .redirAllOut, .redirAllAppend, .redirHereString,
+                 .redirHereDoc:
                 break
             }
         }
@@ -100,7 +102,8 @@ package enum ShellLexer {
             case .pipe, .andIf, .orIf, .semicolon, .background:
                 break
             case .word, .redirOut, .redirAppend, .redirIn, .redirErrOut, .redirErrAppend,
-                 .redirErrToOut, .redirAllOut, .redirAllAppend, .redirHereDoc:
+                 .redirErrToOut, .redirAllOut, .redirAllAppend, .redirHereString,
+                 .redirHereDoc:
                 tokens.append(.semicolon)
             }
         }
@@ -151,6 +154,13 @@ package enum ShellLexer {
                 } else {
                     emitSequenceSeparatorIfNeeded()
                 }
+                continue
+            }
+
+            if currentQuote == .none, input[i...].hasPrefix("<<<") {
+                flushWord()
+                tokens.append(.redirHereString)
+                i = input.index(i, offsetBy: 3)
                 continue
             }
 

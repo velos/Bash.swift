@@ -922,6 +922,30 @@ struct SessionIntegrationTests {
         #expect(result.stdoutString == "via-redir\n")
     }
 
+    @Test("here strings expand into newline-terminated stdin")
+    func hereStringsExpandIntoStandardInput() async throws {
+        let (session, root) = try await TestSupport.makeSession()
+        defer { TestSupport.removeDirectory(root) }
+
+        _ = await session.run("VALUE='hello world'")
+
+        let variable = await session.run("cat <<< \"$VALUE\"")
+        #expect(variable.exitCode == 0)
+        #expect(variable.stdoutString == "hello world\n")
+
+        let command = await session.run("wc -l <<< \"$(printf 'one\\ntwo')\"")
+        #expect(command.exitCode == 0)
+        #expect(command.stdoutString == "2\n")
+
+        let noSplitting = await session.run("cat <<< $VALUE")
+        #expect(noSplitting.exitCode == 0)
+        #expect(noSplitting.stdoutString == "hello world\n")
+
+        let pipeline = await session.run("grep -q needle <<< 'haystack needle' && echo found")
+        #expect(pipeline.exitCode == 0)
+        #expect(pipeline.stdoutString == "found\n")
+    }
+
     @Test("output process substitution remains unsupported")
     func outputProcessSubstitutionRemainsUnsupported() async throws {
         let (session, root) = try await TestSupport.makeSession()

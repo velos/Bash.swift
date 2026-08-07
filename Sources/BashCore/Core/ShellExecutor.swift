@@ -311,7 +311,9 @@ package enum ShellExecutor {
         var input = stdin
         var stderr = Data()
 
-        for redirection in command.redirections where redirection.type == .stdin {
+        for redirection in command.redirections where
+            redirection.type == .stdin || redirection.type == .stdinHereString
+        {
             if let hereDocument = redirection.hereDocument {
                 let expandedHereDocument = await expandHereDocumentBody(
                     hereDocument,
@@ -367,6 +369,11 @@ package enum ShellExecutor {
                 return CommandResult(stdout: Data(), stderr: stderr, exitCode: 2)
             }
             let target = targetExpansion.text
+
+            if redirection.type == .stdinHereString {
+                input = Data((target + "\n").utf8)
+                continue
+            }
 
             do {
                 input = try await expansionFilesystem.readFile(
@@ -643,13 +650,15 @@ package enum ShellExecutor {
         secretTracker: SecretExposureTracker?,
         secretOutputRedactor: any SecretOutputRedacting
     ) async -> CommandResult? {
-        guard redirections.contains(where: { $0.type != .stdin }) else {
+        guard redirections.contains(where: { $0.type != .stdin && $0.type != .stdinHereString }) else {
             return nil
         }
 
         var resolvedTargets: [String?] = []
         for redirection in redirections {
-            guard redirection.type != .stdin, let targetWord = redirection.target else {
+            guard redirection.type != .stdin,
+                  redirection.type != .stdinHereString,
+                  let targetWord = redirection.target else {
                 resolvedTargets.append(nil)
                 continue
             }
@@ -817,6 +826,8 @@ package enum ShellExecutor {
                 } else {
                     parts.append("<")
                 }
+            case .stdinHereString:
+                parts.append("<<<")
             case .stdoutTruncate:
                 parts.append(">")
             case .stdoutAppend:

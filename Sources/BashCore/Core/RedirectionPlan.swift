@@ -52,7 +52,7 @@ package enum RedirectionPlan {
         for (index, redirection) in redirections.enumerated() {
             let target = index < resolvedTargets.count ? resolvedTargets[index] : nil
             switch redirection.type {
-            case .stdin:
+            case .stdin, .stdinHereString:
                 continue
             case .stdoutTruncate, .stdoutAppend:
                 guard let target else { continue }

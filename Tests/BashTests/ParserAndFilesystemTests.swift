@@ -149,6 +149,18 @@ struct ParserAndFilesystemTests {
         )
     }
 
+    @Test("parser captures here-string targets")
+    func parserCapturesHereStringTargets() throws {
+        let parsed = try ShellParser.parse("cat <<< \"hello world\"")
+        let command = try #require(parsed.segments.first?.pipeline.first)
+
+        #expect(command.words.map(\.rawValue) == ["cat"])
+        #expect(command.redirections.count == 1)
+        #expect(command.redirections[0].type == .stdinHereString)
+        #expect(command.redirections[0].target?.rawValue == "hello world")
+        #expect(command.redirections[0].hereDocument == nil)
+    }
+
     @Test("default unix-like layout is created")
     func defaultUnixLikeLayoutIsCreated() async throws {
         let (session, root) = try await TestSupport.makeSession()

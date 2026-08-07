@@ -1133,13 +1133,15 @@ extension BashSession {
         _ redirections: [Redirection],
         to result: inout CommandResult
     ) async {
-        guard redirections.contains(where: { $0.type != .stdin }) else {
+        guard redirections.contains(where: { $0.type != .stdin && $0.type != .stdinHereString }) else {
             return
         }
 
         var resolvedTargets: [String?] = []
         for redirection in redirections {
-            guard redirection.type != .stdin, let targetWord = redirection.target else {
+            guard redirection.type != .stdin,
+                  redirection.type != .stdinHereString,
+                  let targetWord = redirection.target else {
                 resolvedTargets.append(nil)
                 continue
             }
